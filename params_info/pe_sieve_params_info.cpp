@@ -1,11 +1,11 @@
 #include "pe_sieve_params_info.h"
 
-#include <Windows.h>
-#include <Psapi.h>
+#include <windows.h>
+#include <psapi.h>
 
 using namespace pesieve;
 
-std::string translate_dump_mode(const DWORD dump_mode)
+std::string pesieve::translate_dump_mode(const DWORD dump_mode)
 {
 	switch (dump_mode) {
 	case pesieve::PE_DUMP_AUTO:
@@ -20,7 +20,7 @@ std::string translate_dump_mode(const DWORD dump_mode)
 	return "undefined";
 }
 
-std::string translate_out_filter(const pesieve::t_output_filter o_filter)
+std::string pesieve::translate_out_filter(const pesieve::t_output_filter o_filter)
 {
 	switch (o_filter) {
 	case pesieve::OUT_FULL:
@@ -33,7 +33,7 @@ std::string translate_out_filter(const pesieve::t_output_filter o_filter)
 	return "undefined";
 }
 
-std::string translate_imprec_mode(const pesieve::t_imprec_mode imprec_mode)
+std::string pesieve::translate_imprec_mode(const pesieve::t_imprec_mode imprec_mode)
 {
 	switch (imprec_mode) {
 	case pesieve::PE_IMPREC_NONE:
@@ -48,7 +48,24 @@ std::string translate_imprec_mode(const pesieve::t_imprec_mode imprec_mode)
 	return "undefined";
 }
 
-std::string translate_modules_filter(DWORD m_filter)
+std::string pesieve::translate_dotnet_policy(const pesieve::t_dotnet_policy &mode)
+{
+	switch (mode) {
+	case pesieve::PE_DNET_NONE:
+		return "none: treat managed processes same as native";
+	case pesieve::PE_DNET_SKIP_MAPPING:
+		return "skip mapping mismatch (in .NET modules only)";
+	case pesieve::PE_DNET_SKIP_SHC:
+		return "skip shellcodes (in all modules within the managed process)";
+	case pesieve::PE_DNET_SKIP_HOOKS:
+		return "skip hooked modules (in all modules within the managed process)";
+	case pesieve::PE_DNET_SKIP_ALL:
+		return "skip all the above (mapping, shellcodes, hooks)";
+	}
+	return "undefined";
+}
+
+std::string pesieve::translate_modules_filter(DWORD m_filter)
 {
 	switch (m_filter) {
 	case LIST_MODULES_DEFAULT:
@@ -63,7 +80,35 @@ std::string translate_modules_filter(DWORD m_filter)
 	return "undefined";
 }
 
-pesieve::t_imprec_mode normalize_imprec_mode(size_t mode_id)
+std::string pesieve::translate_data_mode(const pesieve::t_data_scan_mode &mode)
+{
+	switch (mode) {
+	case pesieve::PE_DATA_NO_SCAN:
+		return "none: do not scan non-executable pages"; 
+	case pesieve::PE_DATA_SCAN_DOTNET:
+		return ".NET: scan non-executable in .NET applications";
+	case pesieve::PE_DATA_SCAN_NO_DEP:
+		return "if no DEP: scan non-exec if DEP is disabled (or if is .NET)";
+	case pesieve::PE_DNET_SCAN_ALWAYS:
+		return "always: scan non-executable pages unconditionally";
+	}
+	return "undefined";
+}
+
+std::string pesieve::translate_iat_scan_mode(const pesieve::t_iat_scan_mode mode)
+{
+	switch (mode) {
+	case pesieve::PE_IATS_NONE:
+		return "none: do not scan for IAT Hooks (default)";
+	case pesieve::PE_IATS_FILTERED:
+		return "filtered: scan for IAT Hooks, filter out system hooks";
+	case pesieve::PE_IATS_UNFILTERED:
+		return "unfiltered: scan for IAT Hooks, report all";
+	}
+	return "undefined";
+}
+
+pesieve::t_imprec_mode pesieve::normalize_imprec_mode(size_t mode_id)
 {
 	if (mode_id > pesieve::PE_IMPREC_MODES_COUNT) {
 		return pesieve::PE_IMPREC_NONE;
@@ -71,7 +116,7 @@ pesieve::t_imprec_mode normalize_imprec_mode(size_t mode_id)
 	return (t_imprec_mode)mode_id;
 }
 
-pesieve::t_dump_mode normalize_dump_mode(size_t mode_id)
+pesieve::t_dump_mode pesieve::normalize_dump_mode(size_t mode_id)
 {
 	if (mode_id > pesieve::PE_DUMP_MODES_COUNT) {
 		return pesieve::PE_DUMP_AUTO;

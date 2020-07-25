@@ -1,153 +1,196 @@
 #pragma once
 
-#include <Windows.h>
-#include <Psapi.h>
+#include <windows.h>
+#include <psapi.h>
 #include <map>
 
 #include <peconv.h>
+#include "../utils/format_util.h"
 
-class ModuleData {
+namespace pesieve {
 
-public:
-	ModuleData(HANDLE _processHandle, HMODULE _module)
-		: processHandle(_processHandle), moduleHandle(_module),
-		is_module_named(false), original_size(0), original_module(nullptr),
-		is_dot_net(false)
-	{
-		memset(szModName, 0, MAX_PATH);
-		loadModuleName();
-	}
+	class ModuleData {
 
-	ModuleData(HANDLE _processHandle, HMODULE _module, std::string module_name)
-		: processHandle(_processHandle), moduleHandle(_module),
-		is_module_named(false), original_size(0), original_module(nullptr),
-		is_dot_net(false)
-	{
-		memset(szModName, 0, MAX_PATH);
-		memcpy(this->szModName, module_name.c_str(), module_name.length());
-	}
-
-	~ModuleData()
-	{
-		peconv::free_pe_buffer(original_module, original_size);
-	}
-
-	bool is64bit()
-	{
-		if (original_module == nullptr) {
-			return false;
+	public:
+		ModuleData(HANDLE _processHandle, HMODULE _module)
+			: processHandle(_processHandle), moduleHandle(_module),
+			is_module_named(false), original_size(0), original_module(nullptr),
+			is_dot_net(false)
+		{
+			memset(szModName, 0, MAX_PATH);
+			loadModuleName();
 		}
-		return peconv::is64bit(original_module);
-	}
 
-	bool isDotNet() { return this->is_dot_net; }
-
-	ULONGLONG rvaToVa(DWORD rva)
-	{
-		return reinterpret_cast<ULONGLONG>(this->moduleHandle) + rva;
-	}
-
-	DWORD vaToRva(ULONGLONG va)
-	{
-		ULONGLONG module_base = reinterpret_cast<ULONGLONG>(this->moduleHandle);
-		if (va < module_base) {
-			return NULL; // not this module
+		ModuleData(HANDLE _processHandle, HMODULE _module, std::string module_name)
+			: processHandle(_processHandle), moduleHandle(_module),
+			is_module_named(false), original_size(0), original_module(nullptr),
+			is_dot_net(false)
+		{
+			memset(szModName, 0, MAX_PATH);
+			memcpy(this->szModName, module_name.c_str(), module_name.length());
 		}
-		if (va > module_base + this->original_size) {
-			return NULL; // not this module
+
+		~ModuleData()
+		{
+			peconv::free_pe_buffer(original_module, original_size);
 		}
-		ULONGLONG diff = (va - module_base);
-		return static_cast<DWORD>(diff);
-	}
 
-	bool isInitialized()
+		bool is64bit()
+		{
+			if (original_module == nullptr) {
+				return false;
+			}
+			return peconv::is64bit(original_module);
+		}
+
+		bool isDotNet() { return this->is_dot_net; }
+
+		ULONGLONG rvaToVa(DWORD rva)
+		{
+			return reinterpret_cast<ULONGLONG>(this->moduleHandle) + rva;
+		}
+
+		DWORD vaToRva(ULONGLONG va)
+		{
+			ULONGLONG module_base = reinterpret_cast<ULONGLONG>(this->moduleHandle);
+			if (va < module_base) {
+				return NULL; // not this module
+			}
+			if (va > module_base + this->original_size) {
+				return NULL; // not this module
+			}
+			ULONGLONG diff = (va - module_base);
+			return static_cast<DWORD>(diff);
+		}
+
+		bool isInitialized()
+		{
+			return original_module != nullptr;
+		}
+
+		ULONGLONG getHdrImageBase()
+		{
+			if (!original_module) return 0;
+			return peconv::get_image_base((const BYTE*)original_module);
+		}
+
+		bool loadOriginal();
+
+		bool switchToWow64Path();
+		bool reloadWow64();
+		bool relocateToBase(ULONGLONG new_base);
+
+		HANDLE processHandle;
+		HMODULE moduleHandle;
+		char szModName[MAX_PATH];
+		bool is_module_named;
+
+		PBYTE original_module;
+		size_t original_size;
+
+	protected:
+		bool _loadOriginal(bool disableFSredir);
+		bool loadModuleName();
+		bool isDotNetManagedCode();
+		bool is_dot_net;
+
+		friend class PeSection;
+	};
+
+	// the module loaded within the scanned process
+	class RemoteModuleData
 	{
-		return original_module != nullptr;
-	}
-	
-	ULONGLONG getHdrImageBase()
-	{
-		if (!original_module) return 0;
-		return peconv::get_image_base((const BYTE*)original_module);
-	}
+	public:
+		static std::string getModuleName(HANDLE _processHandle, HMODULE _modBaseAddr);
+		static std::string getMappedName(HANDLE _processHandle, LPVOID _modBaseAddr);
 
-	bool loadOriginal();
+		RemoteModuleData(HANDLE _processHandle, HMODULE _modBaseAddr)
+			: processHandle(_processHandle), modBaseAddr(_modBaseAddr),
+			imgBuffer(nullptr), imgBufferSize(0)
+		{
+			isHdrReady = false;
+			memset(headerBuffer, 0, peconv::MAX_HEADER_SIZE);
+			init();
+		}
 
-	bool switchToWow64Path();
-	bool reloadWow64();
-	bool relocateToBase(ULONGLONG new_base);
+		virtual ~RemoteModuleData()
+		{
+			freeFullImage();
+		}
 
-	HANDLE processHandle;
-	HMODULE moduleHandle;
-	char szModName[MAX_PATH];
-	bool is_module_named;
+		bool isSectionEntry(const size_t section_number);
+		bool isSectionExecutable(const size_t section_number);
+		bool hasExecutableSection();
+		bool isInitialized()
+		{
+			if (!isHdrReady && !init()) {
+				return false;
+			}
+			return true;
+		}
 
-	PBYTE original_module;
-	size_t original_size;
+		size_t getHdrImageSize()
+		{
+			if (!isHdrReady) return 0;
+			return peconv::get_image_size((const BYTE*)headerBuffer);
+		}
 
-protected:
-	bool _loadOriginal(bool disableFSredir);
-	bool loadModuleName();
-	bool isDotNetManagedCode();
-	bool is_dot_net;
+		ULONGLONG getHdrImageBase()
+		{
+			if (!isHdrReady) return 0;
+			return peconv::get_image_base((const BYTE*)headerBuffer);
+		}
 
-	friend class PeSection;
-};
+		size_t getModuleSize()
+		{
+			if (imgBufferSize) {
+				return imgBufferSize;
+			}
+			return getHdrImageSize();
+		}
 
-// the module loaded within the scanned process
-class RemoteModuleData
-{
-public:
+		size_t getHeaderSize()
+		{
+			return peconv::MAX_HEADER_SIZE;
+		}
 
-	static std::string getModuleName(HANDLE _processHandle, HMODULE _modBaseAddr);
-	static std::string getMappedName(HANDLE _processHandle, LPVOID _modBaseAddr);
+		bool loadFullImage();
+		bool isFullImageLoaded() { return (imgBuffer != nullptr) && (imgBufferSize != 0); }
+		ULONGLONG getRemoteSectionVa(const size_t section_num);
 
-	RemoteModuleData(HANDLE _processHandle, HMODULE _modBaseAddr)
-		: processHandle(_processHandle), modBaseAddr(_modBaseAddr)
-	{
-		is_ready = false;
-		memset(headerBuffer, 0, peconv::MAX_HEADER_SIZE);
-		init();
-	}
+		ULONGLONG getModuleBase()
+		{
+			return (ULONGLONG)modBaseAddr;
+		}
 
-	virtual ~RemoteModuleData() {}
+		BYTE headerBuffer[peconv::MAX_HEADER_SIZE];
 
-	bool isSectionExecutable(size_t section_number);
-	bool hasExecutableSection();
-	bool isInitialized()
-	{
-		if (!is_ready) init();
-		return is_ready;
-	}
+	protected:
+		bool init();
+		bool loadHeader();
+		size_t calcImgSize();
 
-	size_t getModuleSize()
-	{
-		if (!is_ready) return 0;
-		return peconv::get_image_size((const BYTE*) headerBuffer);
-	}
+		bool _loadFullImage(size_t v_size);
 
-	ULONGLONG getHdrImageBase()
-	{
-		if (!is_ready) return 0;
-		return peconv::get_image_base((const BYTE*)headerBuffer);
-	}
+		void freeFullImage()
+		{
+			peconv::free_pe_buffer(imgBuffer);
+			imgBuffer = nullptr;
+			imgBufferSize = 0;
+		}
 
-	size_t getHeaderSize()
-	{
-		return peconv::MAX_HEADER_SIZE;
-	}
+		HANDLE processHandle;
+		HMODULE modBaseAddr;
 
-	BYTE headerBuffer[peconv::MAX_HEADER_SIZE];
+		BYTE *imgBuffer;
+		size_t imgBufferSize;
 
-protected:
-	bool init();
-	bool loadHeader();
-	ULONGLONG getRemoteSectionVa(const size_t section_num);
+	private:
+		bool isHdrReady;
 
-	HANDLE processHandle;
-	HMODULE modBaseAddr;
+		friend class PeSection;
+		friend class IATScanner;
+	};
 
-	bool is_ready;
+}; //namespace pesieve
 
-	friend class PeSection;
-};

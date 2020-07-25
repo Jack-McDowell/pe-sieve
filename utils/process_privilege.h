@@ -1,18 +1,22 @@
 #pragma once
 
-#include <Windows.h>
+#include <windows.h>
 
-typedef enum {
-	INTEGRITY_UNKNOWN = -1,
-	INTEGRITY_LOW = 0,
-	INTEGRITY_MEDIUM, //1
-	INTEGRITY_HIGH, //2
-	INTEGRITY_SYSTEM //3
-} process_integrity_t;
+namespace pesieve {
+	namespace util {
 
-bool set_debug_privilege(DWORD process_id);
+		typedef enum {
+			INTEGRITY_UNKNOWN = -1,
+			INTEGRITY_LOW = 0,
+			INTEGRITY_MEDIUM, //1
+			INTEGRITY_HIGH, //2
+			INTEGRITY_SYSTEM //3
+		} process_integrity_t;
 
-process_integrity_t get_integrity_level(HANDLE hProcess);
+		bool set_debug_privilege();
 
-bool is_DEP_enabled(HANDLE hProcess);
+		process_integrity_t get_integrity_level(HANDLE hProcess);
 
+		bool is_DEP_enabled(HANDLE hProcess);
+	};
+};

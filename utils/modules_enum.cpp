@@ -1,21 +1,27 @@
 #include "modules_enum.h"
 
-#include <Psapi.h>
+#include <psapi.h>
 #pragma comment(lib,"psapi.lib")
 
-size_t enum_modules(IN HANDLE hProcess, IN OUT HMODULE hMods[], IN const DWORD hModsMax, IN DWORD filters) //throws exceptions
+size_t pesieve::util::enum_modules(IN HANDLE hProcess, IN OUT HMODULE hMods[], IN const DWORD hModsMax, IN DWORD filters) //throws exceptions
 {
-	if (hProcess == nullptr) return 0;
-
+	if (hProcess == nullptr) {
+		return 0;
+	}
+	const char err_msg[] = "Could not enumerate modules. ";
 	DWORD cbNeeded;
 #ifdef _WIN64
 	if (!EnumProcessModulesEx(hProcess, hMods, hModsMax, &cbNeeded, filters)) {
-		throw std::exception("Could not enumerate modules in the process. ", GetLastError());
+		throw std::runtime_error(err_msg);
 		return 0;
 	}
 #else
+	/*
+	Some old, 32-bit versions of Windows do not have EnumProcessModulesEx,
+	but we can use EnumProcessModules for the 32-bit version: it will work the same and prevent the compatibility issues.
+	*/
 	if (!EnumProcessModules(hProcess, hMods, hModsMax, &cbNeeded)) {
-		throw std::runtime_error("Could not enumerate modules in the process.");
+		throw std::runtime_error(err_msg);
 		return 0;
 	}
 #endif

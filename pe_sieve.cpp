@@ -4,26 +4,32 @@
 #include "pe_sieve.h"
 #include <peconv.h>
 
-#include <Windows.h>
+#include <windows.h>
 #include "scanners/scanner.h"
 
-#include "utils/util.h"
+#include "utils/format_util.h"
 #include "utils/process_util.h"
 #include "utils/process_privilege.h"
 #include "utils/process_minidump.h"
+#include "utils/path_converter.h"
 #include "postprocessors/results_dumper.h"
+#include "utils/process_reflection.h"
+#include "utils/console_color.h"
+#include "color_scheme.h"
 
 using namespace pesieve;
+using namespace pesieve::util;
 
-void check_access_denied(DWORD processID)
-{
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processID);
-	if (!hProcess) {
-		std::cerr << "-> Access denied. Try to run the scanner as Administrator." << std::endl;
-		return;
-	}
-	process_integrity_t level = get_integrity_level(hProcess);
-	switch (level) {
+namespace pesieve {
+	void check_access_denied(DWORD processID)
+	{
+		HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processID);
+		if (!hProcess) {
+			std::cerr << "-> Access denied. Try to run the scanner as Administrator." << std::endl;
+			return;
+		}
+		process_integrity_t level = get_integrity_level(hProcess);
+		switch (level) {
 		case INTEGRITY_UNKNOWN:
 			std::cerr << "-> Access denied. Could not query the process token." << std::endl;
 			break;
@@ -31,127 +37,192 @@ void check_access_denied(DWORD processID)
 			std::cerr << "-> Access denied. Could not access the system process." << std::endl;
 			break;
 		default:
-			std::cerr << "-> Access denied. Try to run the scanner as Administrator." << std::endl;
 			break;
+		}
+		CloseHandle(hProcess);
+		hProcess = NULL;
 	}
-	CloseHandle(hProcess);
-	hProcess = NULL;
-}
 
-HANDLE open_process(DWORD processID)
-{
-	HANDLE hProcess = OpenProcess(
-		PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-		FALSE, processID
-	);
-	if (hProcess != nullptr) {
+	bool is_scanner_compatible(IN HANDLE hProcess)
+	{
+		BOOL isCurrWow64 = FALSE;
+		is_process_wow64(GetCurrentProcess(), &isCurrWow64);
+		
+		BOOL isRemoteWow64 = FALSE;
+		is_process_wow64(hProcess, &isRemoteWow64);
+
+		if (isCurrWow64 && !isRemoteWow64) {
+			return false;
+		}
+		return true;
+	}
+
+	// throws std::runtime_error if opening the process failed
+	HANDLE open_process(DWORD processID, bool reflection, bool quiet)
+	{
+		const DWORD basic_access = PROCESS_VM_READ | PROCESS_QUERY_INFORMATION;
+		DWORD access = basic_access;
+		if (reflection) {
+			access |= pesieve::util::reflection_access;
+		}
+
+		HANDLE hProcess = OpenProcess(access, FALSE, processID);
+
+		// if failed, try to open with basic rights
+		if (!hProcess && access != basic_access) {
+			hProcess = OpenProcess( basic_access, FALSE, processID);
+		}
+
+		// check process compatibility
+		if (hProcess && !is_scanner_compatible(hProcess) && !quiet) {
+			util::print_in_color(WARNING_COLOR, "[!] Scanner mismatch! Try to use the 64bit version of the scanner!\n", true);
+		}
+
+		// opening succeeded, return the handle:
+		if (hProcess) {
+			return hProcess;
+		}
+
+		const DWORD last_err = GetLastError();
+
+		if (last_err == ERROR_ACCESS_DENIED) {
+			if (!quiet) {
+				std::cerr << "[-][" << processID << "] Could not open the process Error: " << last_err << std::endl;
+				//print more info:
+				check_access_denied(processID);
+			}
+
+			SetLastError(ERROR_ACCESS_DENIED);
+			throw std::runtime_error("Could not open the process: Access Denied");
+			return nullptr;
+		}
+		if (last_err == ERROR_INVALID_PARAMETER) {
+			if (!quiet) {
+				std::cerr << "-> Is this process still running?" << std::endl;
+			}
+			SetLastError(ERROR_INVALID_PARAMETER);
+			throw std::runtime_error("Could not open the process: Invalid Parameter");
+		}
 		return hProcess;
 	}
-	DWORD last_err = GetLastError();
-	if (last_err == ERROR_ACCESS_DENIED) {
-		if (set_debug_privilege(processID)) {
-			//try again to open
-			hProcess = OpenProcess(
-				PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-				FALSE, processID
-			);
-			if (hProcess != nullptr) {
-				return hProcess;
+
+	pesieve::ProcessDumpReport* make_dump(IN HANDLE hProcess, IN const pesieve::t_params &args, IN ProcessScanReport &process_report)
+	{
+		if (!hProcess) {
+			return nullptr;
+		}
+
+		ProcessDumpReport* dumpReport = nullptr;
+		ResultsDumper dumper(expand_path(args.output_dir), args.quiet);
+
+		if (dumper.dumpJsonReport(process_report, ProcessScanReport::REPORT_SUSPICIOUS_AND_ERRORS) && !args.quiet) {
+			std::cout << "[+] Report dumped to: " << dumper.getOutputDir() << std::endl;
+		}
+		
+		if (args.out_filter != OUT_NO_DUMPS) {
+			pesieve::t_dump_mode dump_mode = pesieve::PE_DUMP_AUTO;
+			if (args.dump_mode < peconv::PE_DUMP_MODES_COUNT) {
+				dump_mode = pesieve::t_dump_mode(args.dump_mode);
+			}
+			size_t dumped_modules = 0;
+			dumpReport = dumper.dumpDetectedModules(hProcess, process_report, dump_mode, args.imprec_mode);
+			if (dumpReport && dumpReport->countDumped()) {
+				dumped_modules = dumpReport->countDumped();
+			}
+			if (!args.quiet && dumped_modules) {
+				std::cout << "[+] Dumped modified to: " << dumper.getOutputDir() << std::endl;
 			}
 		}
-		std::cerr << "[-][" << processID << "] Could not open the process Error: " << last_err << std::endl;
-		//print more info:
-		check_access_denied(processID);
-
-		SetLastError(ERROR_ACCESS_DENIED);
-		throw std::runtime_error("Could not open the process");
-		return nullptr;
-	}
-	if (last_err == ERROR_INVALID_PARAMETER) {
-		std::cerr << "-> Is this process still running?" << std::endl;
-		SetLastError(ERROR_INVALID_PARAMETER);
-		throw std::runtime_error("Could not open the process");
-	}
-	return hProcess;
-}
-
-bool is_scaner_compatibile(HANDLE hProcess)
-{
-	BOOL isCurrWow64 = FALSE;
-	is_process_wow64(GetCurrentProcess(), &isCurrWow64);
-	BOOL isRemoteWow64 = FALSE;
-	is_process_wow64(hProcess, &isRemoteWow64);
-	if (isCurrWow64 && !isRemoteWow64) {
-		std::cerr << "-> Try to use the 64bit version of the scanner." << std::endl;
-		return false;
-	}
-	return true;
-}
-
-size_t dump_output(ProcessScanReport *process_report, HANDLE hProcess, const pesieve::t_params args)
-{
-	if (!process_report || !hProcess) return 0;
-	if (args.out_filter == OUT_NO_DIR) {
-		return 0;
-	}
-	ResultsDumper dumper(args.output_dir, args.quiet);
-
-	if (dumper.dumpJsonReport(*process_report, REPORT_SUSPICIOUS_AND_ERRORS)) {
-		std::cout << "[+] Report dumped to: " << dumper.getOutputDir() << std::endl;
-	}
-	size_t dumped_modules = 0;
-	if (args.out_filter != OUT_NO_DUMPS) {
-		pesieve::t_dump_mode dump_mode = pesieve::PE_DUMP_AUTO;
-		if (args.dump_mode < peconv::PE_DUMP_MODES_COUNT) {
-			dump_mode = pesieve::t_dump_mode(args.dump_mode);
+		if (args.minidump) {
+			pesieve::t_report report = process_report.generateSummary();
+			if (report.suspicious > 0) {
+				if (!args.quiet) {
+					std::cout << "[*] Creating minidump..." << std::endl;
+				}
+				std::string original_path = process_report.mainImagePath;
+				std::string file_name = peconv::get_file_name(original_path);
+				std::string dump_file = dumper.makeOutPath(file_name + ".dmp");
+				if (make_minidump(process_report.getPid(), dump_file)) {
+					if (!dumpReport) {
+						dumpReport = new ProcessDumpReport(process_report.getPid());
+					}
+					dumpReport->minidumpPath = dump_file;
+					if (!args.quiet) {
+						std::cout << "[+] Minidump saved to: " << dumpReport->minidumpPath << std::endl;
+					}
+				}
+				else if (!args.quiet) {
+					std::cout << "[-] Creating minidump failed! " << std::endl;
+				}
+			}
 		}
-		dumped_modules = dumper.dumpDetectedModules(hProcess, *process_report, dump_mode, args.imprec_mode);
-		if (dumped_modules) {
-			std::cout << "[+] Dumped modified to: " << dumper.getOutputDir() << std::endl;
+		if (dumpReport) {
+			dumpReport->outputDir = dumper.getOutputDir();
+			if (dumper.dumpJsonReport(*dumpReport) && !args.quiet) {
+				std::cout << "[+] Report dumped to: " << dumper.getOutputDir() << std::endl;
+			}
 		}
+		return dumpReport;
 	}
-	if (args.minidump) {
-		pesieve::t_report report = process_report->generateSummary();
-		if (report.suspicious > 0) {
-			std::cout << "[*] Creating minidump..." << std::endl;
-			std::string original_path = process_report->mainImagePath;
-			std::string file_name = peconv::get_file_name(original_path);
-			std::string dump_file = dumper.makeOutPath(file_name + ".dmp");
-			if (make_minidump(process_report->getPid(), dump_file)) {
-				std::cout << "[+] Minidump saved to: " << dump_file << std::endl;
+
+}; //namespace pesieve
+
+
+pesieve::ReportEx* pesieve::scan_and_dump(IN const pesieve::t_params args)
+{
+	ReportEx *report = new ReportEx();
+
+	HANDLE orig_proc = nullptr; // original process handle
+	HANDLE cloned_proc = nullptr; // process reflection handle
+
+	if (!set_debug_privilege()) {
+		if (!args.quiet) std::cerr << "[-] Could not set debug privilege" << std::endl;
+	}
+
+	try {
+		orig_proc = open_process(args.pid, args.make_reflection, args.quiet);
+		HANDLE target_proc = orig_proc;
+
+		if (args.make_reflection) {
+			cloned_proc = make_process_reflection(orig_proc);
+			if (cloned_proc) {
+				target_proc = cloned_proc;
+			}
+		}
+
+		if (!args.quiet) {
+			if (cloned_proc) {
+				std::cout << "Using process reflection!\n";
 			}
 			else {
-				std::cout << "[-] Creating minidump failed! " << std::endl;
+				std::cout << "Using raw process!\n";
 			}
 		}
-	}
-	return dumped_modules;
-}
 
-ProcessScanReport* scan_process(const t_params args)
-{
-	HANDLE hProcess = nullptr;
-	ProcessScanReport *process_report = nullptr;
-	try {
-		hProcess = open_process(args.pid);
-		if (!is_scaner_compatibile(hProcess)) {
-			SetLastError(ERROR_INVALID_PARAMETER);
-			throw std::runtime_error("Scanner mismatch. Try to use the 64bit version of the scanner.");
+		ProcessScanner scanner(target_proc, args);
+		report->scan_report = scanner.scanRemote();
+
+		// dump process (if dumping is selected)
+		if (report->scan_report && args.out_filter != OUT_NO_DIR) {
+			report->dump_report = make_dump(target_proc, args, *report->scan_report);
 		}
-		ProcessScanner scanner(hProcess, args);
-		process_report = scanner.scanRemote();
-
-	} catch (std::exception &e) {
-		std::cerr << "[ERROR] " << e.what() << std::endl;
-		return nullptr;
-		
 	}
-	dump_output(process_report, hProcess, args);
-	CloseHandle(hProcess);
-	return process_report;
+	catch (std::exception &e) {
+		delete report;
+		report = nullptr;
+
+		if (!args.quiet) {
+			util::print_in_color(ERROR_COLOR, std::string("[ERROR] ") + e.what() + "\n", true);
+		}
+	}
+	if (cloned_proc) {
+		release_process_reflection(&cloned_proc);
+	}
+	CloseHandle(orig_proc);
+	return report;
 }
 
-std::string info()
+std::string pesieve::info()
 {
 	std::stringstream stream;
 	stream << "Version:  " << PESIEVE_VERSION;
@@ -166,4 +237,3 @@ std::string info()
 	stream << "URL: " << PESIEVE_URL << "\n";
 	return stream.str();
 }
-

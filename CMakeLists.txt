@@ -1,10 +1,33 @@
-cmake_minimum_required (VERSION 2.8)
+cmake_minimum_required (VERSION 3.12.4)
 project (pe-sieve)
 
 option(PESIEVE_AS_DLL "Build PE-sieve as a DLL" OFF)
+option(PESIEVE_AS_STATIC_LIB "Build PE-Sieve as a static library" OFF)
+
 include_directories (
-  include
+	include
 )
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+
+	option(LINK_STATICALLY "Link PE-Sieve with static versions of linked libraries" ON)
+
+	add_compile_options(
+		-fpermissive
+	)
+
+	add_compile_definitions(
+		_WIN32_WINNT=1536 # 0x600 aka Windows Vista required
+	)
+
+	if(LINK_STATICALLY)
+		add_link_options(
+			-static
+			-static-libgcc
+			-static-libstdc++
+		)
+	endif()
+
+endif()
 
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
 
@@ -21,6 +44,7 @@ set (scanners_srcs
 	scanners/code_scanner.cpp
 	scanners/workingset_scanner.cpp
 	scanners/artefact_scanner.cpp
+	scanners/iat_scanner.cpp
 	scanners/scanner.cpp
 	scanners/module_data.cpp
 	scanners/mempage_data.cpp
@@ -38,6 +62,7 @@ set (scanners_hdrs
 	scanners/module_scanner.h
 	scanners/workingset_scanner.h
 	scanners/artefact_scanner.h
+	scanners/iat_scanner.h
 	scanners/scanner.h
 	scanners/module_scan_report.h
 	scanners/scan_report.h
@@ -60,6 +85,7 @@ set (imprec_hdrs
 set (postprocessors_hdrs
 	postprocessors/report_formatter.h
 	postprocessors/results_dumper.h
+	postprocessors/dump_report.h
 	postprocessors/pe_buffer.h
 	postprocessors/pe_reconstructor.h
 )
@@ -74,23 +100,28 @@ set (imprec_srcs
 set (postprocessors_srcs
 	postprocessors/report_formatter.cpp
 	postprocessors/results_dumper.cpp
+	postprocessors/dump_report.cpp
 	postprocessors/pe_buffer.cpp
 	postprocessors/pe_reconstructor.cpp
 )
 
 set (utils_srcs
+	utils/format_util.cpp
 	utils/process_util.cpp
 	utils/process_privilege.cpp
 	utils/process_minidump.cpp
-	utils/util.cpp
+	utils/path_util.cpp
 	utils/path_converter.cpp
 	utils/workingset_enum.cpp
 	utils/modules_enum.cpp
 	utils/artefacts_util.cpp
+	utils/process_reflection.cpp
+	utils/console_color.cpp
 )
 
 set (utils_hdrs
-	utils/util.h
+	utils/format_util.h
+	utils/path_util.h
 	utils/path_converter.h
 	utils/process_util.h
 	utils/process_privilege.h
@@ -98,6 +129,8 @@ set (utils_hdrs
 	utils/workingset_enum.h
 	utils/modules_enum.h
 	utils/artefacts_util.h
+	utils/process_reflection.h
+	utils/console_color.h
 )
 
 set (params_info_hdrs
@@ -150,25 +183,68 @@ SOURCE_GROUP("Header Files\\postprocessors" FILES ${postprocessors_hdrs} )
 SOURCE_GROUP("Source Files\\postprocessors\\imp_rec" FILES ${imprec_srcs} )
 SOURCE_GROUP("Header Files\\postprocessors\\imp_rec" FILES ${imprec_hdrs} )
 
-# libs
-add_subdirectory (libpeconv/libpeconv)
-set ( PECONV_LIB $<TARGET_FILE:libpeconv> CACHE FILE "PEConvLib library path" )
+include(GNUInstallDirs)
+set (library_export_hdrs
+	include/pe_sieve_types.h
+	include/pe_sieve_version.h
+	include/pe_sieve_api.h
+)
+if(PESIEVE_AS_STATIC_LIB)
+	set(LIBRARY_TYPE STATIC)
+	# Install libpeconv as well since with static libraries a user has to link against both
+	set(PECONV_LIB_INSTALL ON CACHE INTERNAL "")
+elseif(PESIEVE_AS_DLL)
+	set(LIBRARY_TYPE SHARED)
+endif()
 
-# Choose to build the DLL or EXE
+if (PESIEVE_AS_DLL AND PESIEVE_AS_STATIC_LIB)
+	message(FATAL_ERROR "Choose either PESIEVE_AS_STATIC_LIB or PESIEVE_AS_DLL (or none of them, to build as an EXE)")
+endif()
 
-if(PESIEVE_AS_DLL)
-	set (dll_hdrs
-		${hdrs}
-		include/pe_sieve_api.h
+# Choose to build the library or EXE
+if(PESIEVE_AS_STATIC_LIB OR PESIEVE_AS_DLL)
+	set (lib_srcs
+		pe_sieve_api.cpp
+		${srcs}
 	)
-	add_library ( ${PROJECT_NAME} SHARED ${dll_hdrs} ${srcs} dll_main.cpp main.def)
+	if (PESIEVE_AS_DLL)
+		set (lib_srcs
+			dll_main.cpp
+			main.def
+			${lib_srcs}
+		)
+	endif()
+
+	add_library ( ${PROJECT_NAME} ${LIBRARY_TYPE} ${library_export_hdrs} ${hdrs} ${lib_srcs} )
+	set_source_files_properties(main.def PROPERTIES HEADER_FILE_ONLY TRUE)
+	target_compile_definitions(${PROJECT_NAME} PUBLIC PESIEVE_${LIBRARY_TYPE}_LIB)
+	INSTALL(FILES ${library_export_hdrs}
+		DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+	)
+	set_source_files_properties(main.def PROPERTIES HEADER_FILE_ONLY TRUE)
 else()
 	add_executable ( ${PROJECT_NAME} ${hdrs} ${srcs} ${rsrc} main.cpp )
 endif()
 
-target_link_libraries ( ${PROJECT_NAME} ${PECONV_LIB} "psapi.lib" "ntdll.lib")
+if(PESIEVE_AS_STATIC_LIB OR PESIEVE_AS_DLL)
+	include(GNUInstallDirs)
+	install(TARGETS ${PROJECT_NAME}
+		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+	)
+endif()
+
+install(TARGETS ${PROJECT_NAME}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX} COMPONENT ${PROJECT_NAME}
+)
+
+
+# libs
+add_subdirectory (libpeconv/libpeconv)
+set ( PECONV_LIB $<TARGET_FILE:libpeconv> CACHE PATH "PEConvLib library path" )
+
+target_link_libraries ( ${PROJECT_NAME} ${PECONV_LIB} "psapi.lib" "ntdll.lib" "shlwapi")
 
 # dependencies
 add_dependencies(${PROJECT_NAME} libpeconv)
-
-INSTALL( TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_BINARY_DIR} COMPONENT ${PROJECT_NAME} )

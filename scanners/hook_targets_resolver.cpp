@@ -3,7 +3,9 @@
 #include "scan_report.h"
 #include "code_scanner.h"
 
-bool HookTargetResolver::resolveTarget(PatchList::Patch* currPatch)
+using namespace pesieve;
+
+bool pesieve::HookTargetResolver::resolveTarget(PatchList::Patch* currPatch)
 {
 	if (!currPatch) return false;
 	ULONGLONG searchedAddr = currPatch->getHookTargetVA();
@@ -21,7 +23,6 @@ bool HookTargetResolver::resolveTarget(PatchList::Patch* currPatch)
 		std::cout << "Searching hook in module: " << std::hex << begin << std::endl;
 #endif
 		if (searchedAddr >= begin && searchedAddr < end) {
-			DWORD searchedRVA = DWORD(searchedAddr - begin);
 #ifdef _DEBUG
 			std::cout << "[+] Address found in module: " << std::hex << modInfo.moduleAddr << std::endl;
 #endif
@@ -32,7 +33,7 @@ bool HookTargetResolver::resolveTarget(PatchList::Patch* currPatch)
 	return false;
 }
 
-size_t HookTargetResolver::resolveAllHooks(const std::set<ModuleScanReport*> &code_reports)
+size_t pesieve::HookTargetResolver::resolveAllHooks(const std::set<ModuleScanReport*> &code_reports)
 {
 	size_t resolved = 0;
 	std::set<ModuleScanReport*>::iterator cItr;
@@ -55,10 +56,10 @@ size_t HookTargetResolver::resolveAllHooks(const std::set<ModuleScanReport*> &co
 	return resolved;
 }
 
-size_t HookTargetResolver::mapScannedModules(ProcessScanReport& process_report, HANDLE hProcess)
+size_t pesieve::HookTargetResolver::mapScannedModules(ProcessScanReport& process_report, HANDLE hProcess)
 {
 	std::vector<ModuleScanReport*>::iterator modItr;
-	for (modItr = process_report.module_reports.begin(); modItr != process_report.module_reports.end(); ++modItr) {
+	for (modItr = process_report.moduleReports.begin(); modItr != process_report.moduleReports.end(); ++modItr) {
 		ModuleScanReport* scanReport = *modItr;
 		ScannedModuleInfo modInfo = { 0 };
 		modInfo.moduleAddr = (ULONGLONG)scanReport->module;

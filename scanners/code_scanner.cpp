@@ -7,7 +7,10 @@
 //---
 #include <iostream>
 
-size_t CodeScanReport::generateTags(std::string reportPath)
+using namespace pesieve;
+using namespace pesieve::util;
+
+size_t pesieve::CodeScanReport::generateTags(std::string reportPath)
 {
 	if (patchesList.size() == 0) {
 		return 0;
@@ -25,7 +28,7 @@ size_t CodeScanReport::generateTags(std::string reportPath)
 }
 //---
 
-bool CodeScanner::clearIAT(PeSection &originalSec, PeSection &remoteSec)
+bool pesieve::CodeScanner::clearIAT(PeSection &originalSec, PeSection &remoteSec)
 {
 	IMAGE_DATA_DIRECTORY* iat_dir = peconv::get_directory_entry(moduleData.original_module, IMAGE_DIRECTORY_ENTRY_IAT);
 	if (!iat_dir) {
@@ -46,7 +49,7 @@ bool CodeScanner::clearIAT(PeSection &originalSec, PeSection &remoteSec)
 	return true;
 }
 
-bool CodeScanner::clearLoadConfig(PeSection &originalSec, PeSection &remoteSec)
+bool pesieve::CodeScanner::clearLoadConfig(PeSection &originalSec, PeSection &remoteSec)
 {
 	// check if the Guard flag is enabled:
 	WORD charact = peconv::get_dll_characteristics(moduleData.original_module);
@@ -86,7 +89,7 @@ bool CodeScanner::clearLoadConfig(PeSection &originalSec, PeSection &remoteSec)
 	return true;
 }
 
-bool CodeScanner::clearExports(PeSection &originalSec, PeSection &remoteSec)
+bool pesieve::CodeScanner::clearExports(PeSection &originalSec, PeSection &remoteSec)
 {
 	IMAGE_DATA_DIRECTORY* dir = peconv::get_directory_entry(moduleData.original_module, IMAGE_DIRECTORY_ENTRY_EXPORT);
 	if (!dir) {
@@ -98,7 +101,7 @@ bool CodeScanner::clearExports(PeSection &originalSec, PeSection &remoteSec)
 	if (originalSec.isContained(iat_rva, iat_size))
 	{
 #ifdef _DEBUG
-		std::cout << "Exports are  is in Code section!" << std::endl;
+		std::cout << "Exports are in the Code section!" << std::endl;
 #endif
 		DWORD offset = iat_rva - originalSec.rva;
 		IMAGE_EXPORT_DIRECTORY *exports = (IMAGE_EXPORT_DIRECTORY*) ((ULONGLONG)originalSec.loadedSection + offset);
@@ -121,7 +124,7 @@ bool CodeScanner::clearExports(PeSection &originalSec, PeSection &remoteSec)
 	return true;
 }
 
-size_t CodeScanner::collectPatches(DWORD section_rva, PBYTE orig_code, PBYTE patched_code, size_t code_size, OUT PatchList &patchesList)
+size_t pesieve::CodeScanner::collectPatches(DWORD section_rva, PBYTE orig_code, PBYTE patched_code, size_t code_size, OUT PatchList &patchesList)
 {
 	PatchAnalyzer analyzer(moduleData, section_rva, patched_code, code_size);
 	PatchList::Patch *currPatch = nullptr;
@@ -157,8 +160,19 @@ size_t CodeScanner::collectPatches(DWORD section_rva, PBYTE orig_code, PBYTE pat
 	return patchesList.size();
 }
 
+namespace pesieve {
+	inline BYTE* first_different(const BYTE *buf_ptr, size_t bif_size, const BYTE padding)
+	{
+		for (size_t i = 0; i < bif_size; i++) {
+			if (buf_ptr[i] != padding) {
+				return (BYTE*)(buf_ptr + i);
+			}
+		}
+		return nullptr;
+	}
+};
 
-CodeScanner::t_section_status CodeScanner::scanSection(PeSection &originalSec, PeSection &remoteSec, OUT PatchList &patchesList)
+pesieve::CodeScanner::t_section_status pesieve::CodeScanner::scanSection(PeSection &originalSec, PeSection &remoteSec, OUT PatchList &patchesList)
 {
 	if (!originalSec.isInitialized() || !remoteSec.isInitialized()) {
 		return SECTION_SCAN_ERR;
@@ -178,27 +192,54 @@ CodeScanner::t_section_status CodeScanner::scanSection(PeSection &originalSec, P
 #endif
 	//check if the code of the loaded module is same as the code of the module on the disk:
 	int res = memcmp(remoteSec.loadedSection, originalSec.loadedSection, smaller_size);
-	if (res == 0) {
-		return CodeScanner::SECTION_NOT_MODIFIED; //not modified
-	}
+
 	if ((originalSec.rawSize == 0 || peconv::is_padding(originalSec.loadedSection, smaller_size, 0))
 		&& !peconv::is_padding(remoteSec.loadedSection, smaller_size, 0))
 	{
-		return CodeScanner::SECTION_UNPACKED; // modified
+		return pesieve::CodeScanner::SECTION_UNPACKED; // modified
 	}
-	collectPatches(originalSec.rva, originalSec.loadedSection, remoteSec.loadedSection, smaller_size, patchesList);
-	return CodeScanner::SECTION_PATCHED; // modified
+
+	if (res != 0) {
+		collectPatches(originalSec.rva, originalSec.loadedSection, remoteSec.loadedSection, smaller_size, patchesList);
+	}
+
+	if (remoteSec.loadedSize > originalSec.loadedSize) {
+		
+		const size_t diff = remoteSec.loadedSize - originalSec.loadedSize;
+		const BYTE *diff_bgn = remoteSec.loadedSection + originalSec.loadedSize;
+		
+		BYTE *not_padding = first_different(diff_bgn, diff, 0);
+		if (not_padding) {
+			const size_t found_offset = not_padding - remoteSec.loadedSection;
+			const DWORD found_rva = remoteSec.rva + found_offset;
+			PatchList::Patch* currPatch = new PatchList::Patch(moduleData.moduleHandle, patchesList.size(), found_rva);
+			currPatch->setEnd((DWORD)remoteSec.rva + remoteSec.loadedSize);
+			patchesList.insert(currPatch);
+		}
+	}
+	if (patchesList.size()) {
+		return pesieve::CodeScanner::SECTION_PATCHED; // modified
+	}
+	if (res == 0) {
+		return pesieve::CodeScanner::SECTION_NOT_MODIFIED; //not modified
+	}
+	return pesieve::CodeScanner::SECTION_UNPACKED; // modified
 }
 
-size_t CodeScanner::collectExecutableSections(RemoteModuleData &_remoteModData, std::map<size_t, PeSection*> &sections)
+size_t pesieve::CodeScanner::collectExecutableSections(RemoteModuleData &_remoteModData, std::map<size_t, PeSection*> &sections)
 {
 	size_t initial_size = sections.size();
-	size_t sec_count = peconv::get_sections_count(_remoteModData.headerBuffer, _remoteModData.getHeaderSize());
+	const size_t sec_count = peconv::get_sections_count(_remoteModData.headerBuffer, _remoteModData.getHeaderSize());
 	for (size_t i = 0; i < sec_count; i++) {
 		PIMAGE_SECTION_HEADER section_hdr = peconv::get_section_hdr(_remoteModData.headerBuffer, _remoteModData.getHeaderSize(), i);
-		if (section_hdr == nullptr) continue;
+		if (section_hdr == nullptr) {
+			continue;
+		}
 
-		if (!(section_hdr->Characteristics & IMAGE_SCN_MEM_EXECUTE)
+		const bool is_entry = _remoteModData.isSectionEntry(i);
+
+		if (!is_entry // entry section may be set as non executable, but it will still be executed
+			&& !(section_hdr->Characteristics & IMAGE_SCN_MEM_EXECUTE)
 			&& !_remoteModData.isSectionExecutable(i))
 		{
 			//not executable, skip it
@@ -210,16 +251,23 @@ size_t CodeScanner::collectExecutableSections(RemoteModuleData &_remoteModData, 
 		if (!remoteSec->isInitialized()) {
 			continue;
 		}
-		if (i == 0 // always scan first section
+		if (is_entry // always scan section containing Entry Point
 			|| is_code(remoteSec->loadedSection, remoteSec->loadedSize))
 		{
 			sections[i] = remoteSec;
 		}
 	}
+	//corner case: PEs without sections
+	if (sec_count == 0) {
+		PeSection *remoteSec = new PeSection(_remoteModData, 0);
+		if (remoteSec->isInitialized()) {
+			sections[0] = remoteSec;
+		}
+	}
 	return sections.size() - initial_size;
 }
 
-void CodeScanner::freeExecutableSections(std::map<size_t, PeSection*> &sections)
+void pesieve::CodeScanner::freeExecutableSections(std::map<size_t, PeSection*> &sections)
 {
 	std::map<size_t, PeSection*>::iterator itr;
 	for (itr = sections.begin(); itr != sections.end(); ++itr) {
@@ -229,7 +277,7 @@ void CodeScanner::freeExecutableSections(std::map<size_t, PeSection*> &sections)
 	sections.clear();
 }
 
-t_scan_status CodeScanner::scanUsingBase(IN ULONGLONG load_base, IN std::map<size_t, PeSection*> &remote_code, OUT std::set<DWORD> &unpackedSections, OUT PatchList &patchesList)
+t_scan_status pesieve::CodeScanner::scanUsingBase(IN ULONGLONG load_base, IN std::map<size_t, PeSection*> &remote_code, OUT std::set<DWORD> &unpackedSections, OUT PatchList &patchesList)
 {
 	t_scan_status last_res = SCAN_NOT_SUSPICIOUS;
 
@@ -237,23 +285,21 @@ t_scan_status CodeScanner::scanUsingBase(IN ULONGLONG load_base, IN std::map<siz
 	if (!moduleData.relocateToBase(load_base)) {
 		return SCAN_ERROR;
 	}
-
 	size_t errors = 0;
 	size_t modified = 0;
 	std::map<size_t, PeSection*>::iterator itr;
-	t_section_status sec_status = CodeScanner::SECTION_SCAN_ERR;
 
 	for (itr = remote_code.begin(); itr != remote_code.end(); ++itr) {
 		size_t sec_indx = itr->first;
 		PeSection *remoteSec = itr->second;
 
 		PeSection originalSec(moduleData, sec_indx);
-		sec_status = scanSection(originalSec, *remoteSec, patchesList);
+		t_section_status sec_status = scanSection(originalSec, *remoteSec, patchesList);
 
-		if (sec_status == CodeScanner::SECTION_SCAN_ERR) errors++;
-		else if (sec_status != CodeScanner::SECTION_NOT_MODIFIED) {
+		if (sec_status == pesieve::CodeScanner::SECTION_SCAN_ERR) errors++;
+		else if (sec_status != pesieve::CodeScanner::SECTION_NOT_MODIFIED) {
 			modified++;
-			if (sec_status == CodeScanner::SECTION_UNPACKED) {
+			if (sec_status == pesieve::CodeScanner::SECTION_UNPACKED) {
 				unpackedSections.insert(originalSec.rva);
 			}
 		}
@@ -268,7 +314,7 @@ t_scan_status CodeScanner::scanUsingBase(IN ULONGLONG load_base, IN std::map<siz
 	return last_res;
 }
 
-CodeScanReport* CodeScanner::scanRemote()
+pesieve::CodeScanReport* pesieve::CodeScanner::scanRemote()
 {
 	if (!moduleData.isInitialized()) {
 		std::cerr << "[-] Module not initialized" << std::endl;
@@ -278,7 +324,7 @@ CodeScanReport* CodeScanner::scanRemote()
 		std::cerr << "[-] Failed to read the module header" << std::endl;
 		return nullptr;
 	}
-	CodeScanReport *my_report = new CodeScanReport(this->processHandle, moduleData.moduleHandle, moduleData.original_size);
+	CodeScanReport *my_report = new CodeScanReport(this->processHandle, moduleData.moduleHandle, remoteModData.getModuleSize());
 	my_report->isDotNetModule = moduleData.isDotNet();
 	
 	t_scan_status last_res = SCAN_NOT_SUSPICIOUS;
@@ -288,7 +334,6 @@ CodeScanReport* CodeScanner::scanRemote()
 		my_report->status = last_res;
 		return my_report;
 	}
-
 	ULONGLONG load_base = (ULONGLONG)moduleData.moduleHandle;
 	ULONGLONG hdr_base = remoteModData.getHdrImageBase();
 
@@ -319,7 +364,7 @@ CodeScanReport* CodeScanner::scanRemote()
 	return my_report; // last result
 }
 
-bool CodeScanner::postProcessScan(IN OUT CodeScanReport &report)
+bool pesieve::CodeScanner::postProcessScan(IN OUT CodeScanReport &report)
 {
 	// we need only exports from the current module, not the global mapping
 	if (report.patchesList.size() == 0) {

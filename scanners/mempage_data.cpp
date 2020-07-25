@@ -1,7 +1,9 @@
 #include "mempage_data.h"
 #include "module_data.h"
 
-bool MemPageData::fillInfo()
+using namespace pesieve;
+
+bool pesieve::MemPageData::fillInfo()
 {
 	MEMORY_BASIC_INFORMATION page_info = { 0 };
 	SIZE_T out = VirtualQueryEx(this->processHandle, (LPCVOID) start_va, &page_info, sizeof(page_info));
@@ -24,7 +26,7 @@ bool MemPageData::fillInfo()
 	return true;
 }
 
-bool MemPageData::loadModuleName()
+bool pesieve::MemPageData::loadModuleName()
 {
 	const HMODULE mod_base = (HMODULE)this->alloc_base;
 	std::string module_name = RemoteModuleData::getModuleName(processHandle, mod_base);
@@ -38,7 +40,7 @@ bool MemPageData::loadModuleName()
 	return true;
 }
 
-bool MemPageData::loadMappedName()
+bool pesieve::MemPageData::loadMappedName()
 {
 	if (!isInfoFilled() && !fillInfo()) {
 		return false;
@@ -54,7 +56,7 @@ bool MemPageData::loadMappedName()
 	return true;
 }
 
-bool MemPageData::isRealMapping()
+bool pesieve::MemPageData::isRealMapping()
 {
 	if (this->loadedData == nullptr && !fillInfo()) {
 #ifdef _DEBUG
@@ -105,10 +107,14 @@ bool MemPageData::isRealMapping()
 	return is_same;
 }
 
-bool MemPageData::_loadRemote()
+bool pesieve::MemPageData::_loadRemote()
 {
-	peconv::free_pe_buffer(this->loadedData, this->loadedSize);
+	_freeRemote();
 	size_t region_size = size_t(this->region_end - this->start_va);
+	if (stop_va && ( stop_va >= start_va  && stop_va < this->region_end)) {
+		region_size = size_t(this->stop_va - this->start_va);
+	}
+	
 	if (region_size == 0) {
 		return false;
 	}
@@ -116,10 +122,9 @@ bool MemPageData::_loadRemote()
 	if (loadedData == nullptr) {
 		return false;
 	}
-
+	this->loadedSize = region_size;
 	bool is_guarded = (protection & PAGE_GUARD) != 0;
 
-	this->loadedSize = region_size;
 	size_t size_read = peconv::read_remote_memory(this->processHandle, (BYTE*)this->start_va, loadedData, loadedSize);
 	if ((size_read == 0) && is_guarded) {
 #ifdef _DEBUG

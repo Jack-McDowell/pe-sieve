@@ -1,11 +1,21 @@
 #pragma once
 
-#include <vector>
-#include <Windows.h>
+#include <windows.h>
 
 #include <pshpack4.h> // ensure 4 byte packing of the structures
 
+#define MAX_MODULE_BUF_LEN 1024
+#define PARAM_LIST_SEPARATOR ';'
+
+#ifndef __cplusplus
+typedef char bool;
+#endif
+
+#ifdef __cplusplus
 namespace pesieve {
+#endif
+	const DWORD ERROR_SCAN_FAILURE = (-1);
+
 	typedef enum {
 		OUT_FULL = 0,
 		OUT_NO_DUMPS,
@@ -29,33 +39,69 @@ namespace pesieve {
 		PE_DUMP_MODES_COUNT
 	} t_dump_mode;
 
+	typedef enum {
+		PE_IATS_NONE = 0,// do not scan IAT
+		PE_IATS_FILTERED, // scan IAT, filter out system hooks
+		PE_IATS_UNFILTERED, // scan IAT, unfiltered
+		PE_IATS_MODES_COUNT
+	} t_iat_scan_mode;
+
+	typedef enum {
+		PE_DNET_NONE = 0,// none: treat managed processes same as native
+		PE_DNET_SKIP_MAPPING = 1, // skip mapping mismatch (in .NET modules only)
+		PE_DNET_SKIP_SHC, // skip shellcodes (in all modules within the managed process)
+		PE_DNET_SKIP_HOOKS, // skip hooked modules (in all modules within the managed process)
+		PE_DNET_SKIP_ALL,
+		PE_DNET_COUNT
+	} t_dotnet_policy;
+
+	typedef enum {
+		PE_DATA_NO_SCAN = 0,// do not scan non-executable pages
+		PE_DATA_SCAN_DOTNET, // scan data in .NET applications
+		PE_DATA_SCAN_NO_DEP, // scan data if no DEP or in .NET applications
+		PE_DNET_SCAN_ALWAYS, // scan data in .NET applications, or in all if DEP disabled
+		PE_DATA_COUNT
+	} t_data_scan_mode;
+
 	typedef struct {
 		DWORD pid;
 		DWORD modules_filter;
+		t_dotnet_policy dotnet_policy; // policy for scanning .NET modules
 		t_imprec_mode imprec_mode; //import recovery mode
 		bool quiet; // do not print log on the stdout
 		t_output_filter out_filter;
 		bool no_hooks; // don't scan for hooks
 		bool shellcode; // detect shellcode implants
-		bool data; //scan non-executable pages if DEP for the process is disabled
+		t_iat_scan_mode iat; // detect IAT hooking
+		t_data_scan_mode data; //should scan non-executable pages?
 		bool minidump; // make minidump of full process
 		t_dump_mode dump_mode;
 		bool json_output;
+		bool make_reflection;
 		char output_dir[MAX_PATH + 1];
+		char modules_ignored[MAX_MODULE_BUF_LEN]; // a list of modules that will not be scanned, separated by PARAM_LIST_SEPARATOR
 	} t_params;
 
 	typedef struct {
 		DWORD pid; // pid of the process that was scanned
+		bool is_managed; // is process managed (.NET)
+		bool is_64bit;
 		DWORD scanned; // number of all scanned modules
 		DWORD suspicious;// general summary of suspicious
 		DWORD replaced; // PE file replaced in memory (probably hollowed)
 		DWORD hdr_mod; // PE header is modified (but not replaced)
-		DWORD detached; // cannot find the file corresponding to the module in memory
-		DWORD hooked; // detected modifications in the code
-		DWORD implanted; // the full PE was probably loaded manually
+		DWORD unreachable_file; // cannot read the file corresponding to the module in memory
+		DWORD patched; // detected modifications in the code
+		DWORD iat_hooked; // detected IAT hooks
+		DWORD implanted; // all implants: shellcodes + PEs
+		DWORD implanted_pe; // the full PE was probably loaded manually
+		DWORD implanted_shc; //implanted shellcodes
+		DWORD other; // other indicators
 		DWORD skipped; // some of the modules must be skipped (i.e. dotNET managed code have different characteristics and this scan does not apply)
-		DWORD errors; // errors prevented the scan
+		DWORD errors; // Count of elements that could not be scanned because of errors. If errors == ERROR_SCAN_FAILURE, no scan was performed.
 	} t_report;
+#ifdef __cplusplus
 };
+#endif
 
 #include <poppack.h> //back to the previous structure packing

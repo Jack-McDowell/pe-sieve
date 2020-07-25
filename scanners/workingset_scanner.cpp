@@ -7,7 +7,10 @@
 #include "../utils/workingset_enum.h"
 #include "../utils/artefacts_util.h"
 
-bool WorkingSetScanner::isCode(MemPageData &memPageData)
+using namespace pesieve;
+using namespace pesieve::util;
+
+bool pesieve::WorkingSetScanner::isCode(MemPageData &memPageData)
 {
 	if (!memPage.load()) {
 		return false;
@@ -15,56 +18,60 @@ bool WorkingSetScanner::isCode(MemPageData &memPageData)
 	return is_code(memPageData.getLoadedData(), memPageData.getLoadedSize());
 }
 
-bool WorkingSetScanner::isExecutable(MemPageData &memPageData)
+bool pesieve::WorkingSetScanner::isExecutable(MemPageData &memPageData)
 {
-	bool is_any_exec = false;
-	if (memPage.mapping_type == MEM_IMAGE)
+	if (pesieve::util::is_executable(memPage.mapping_type, memPage.protection)) {
+		return true;
+	}
+	if (pesieve::util::is_executable(memPage.mapping_type, memPage.initial_protect)) {
+		return true;
+	}
+	return isPotentiallyExecutable(memPageData, this->args.data);
+}
+
+bool pesieve::WorkingSetScanner::isPotentiallyExecutable(MemPageData &memPageData, const t_data_scan_mode &mode)
+{
+	if (mode == pesieve::PE_DATA_NO_SCAN) {
+		return false;
+	}
+
+	const bool is_managed = this->processReport.isManagedProcess();
+
+	if (mode == pesieve::PE_DATA_SCAN_NO_DEP 
+		&& memPage.is_dep_enabled && !is_managed)
 	{
-		is_any_exec = (memPage.protection & SECTION_MAP_EXECUTE)
-			|| (memPage.protection & SECTION_MAP_EXECUTE_EXPLICIT)
-			|| (memPage.initial_protect & SECTION_MAP_EXECUTE)
-			|| (memPage.initial_protect & SECTION_MAP_EXECUTE_EXPLICIT);
+		return false;
+	}
+	if (mode == pesieve::PE_DATA_SCAN_DOTNET
+		&& !is_managed)
+	{
+		return false;
+	}
+	bool is_any_exec = false;
+
+	if (memPage.mapping_type == MEM_IMAGE) {
+		is_any_exec = (memPage.protection & SECTION_MAP_READ) != 0;
 
 		if (is_any_exec) return true;
 	}
-	is_any_exec = (memPage.initial_protect & PAGE_EXECUTE_READWRITE)
-		|| (memPage.initial_protect & PAGE_EXECUTE_READ)
-		|| (memPage.initial_protect & PAGE_EXECUTE)
-		|| (memPage.initial_protect & PAGE_EXECUTE_WRITECOPY)
-		|| (memPage.protection & PAGE_EXECUTE_READWRITE)
-		|| (memPage.protection & PAGE_EXECUTE_READ)
-		|| (memPage.protection & PAGE_EXECUTE)
-		|| (memPage.protection & PAGE_EXECUTE_WRITECOPY);
-	if (is_any_exec) return true;
-
-	if (this->args.data) {
-		is_any_exec = isPotentiallyExecutable(memPageData);
-	}
+	is_any_exec = (memPage.protection & PAGE_READWRITE)
+		|| (memPage.protection & PAGE_READONLY);
 	return is_any_exec;
 }
 
-bool WorkingSetScanner::isPotentiallyExecutable(MemPageData &memPageData)
-{
-	bool is_any_exec = false;
-	if (!memPage.is_dep_enabled) {
-		//DEP is disabled, check also pages that are readable
-		is_any_exec = (memPage.protection & PAGE_READWRITE)
-			|| (memPage.protection & PAGE_READONLY);
-	}
-	return is_any_exec;
-}
-
-WorkingSetScanReport* WorkingSetScanner::scanExecutableArea(MemPageData &memPageData)
+WorkingSetScanReport* pesieve::WorkingSetScanner::scanExecutableArea(MemPageData &memPageData)
 {
 	if (!memPage.load()) {
 		return nullptr;
 	}
-	//shellcode found! now examin it with more details:
-	ArtefactScanner artefactScanner(this->processHandle, memPage);
-	WorkingSetScanReport *my_report = artefactScanner.scanRemote();
-	if (my_report) {
-		//pe artefacts found
-		return my_report;
+	// check for PE artifacts (regardless if it has shellcode patterns):
+	if (!isScannedAsModule(memPage)) {
+		ArtefactScanner artefactScanner(this->processHandle, memPage, this->processReport);
+		WorkingSetScanReport *my_report1 = artefactScanner.scanRemote();
+		if (my_report1) {
+			//pe artefacts found
+			return my_report1;
+		}
 	}
 	if (!this->args.shellcode) {
 		// not a PE file, and we are not interested in shellcode, so just finish it here
@@ -77,36 +84,33 @@ WorkingSetScanReport* WorkingSetScanner::scanExecutableArea(MemPageData &memPage
 	//report about shellcode:
 	ULONGLONG region_start = memPage.region_start;
 	const size_t region_size = size_t (memPage.region_end - region_start);
-	my_report = new WorkingSetScanReport(processHandle, (HMODULE)region_start, region_size, SCAN_SUSPICIOUS);
-	my_report->has_pe = false;
+	WorkingSetScanReport *my_report = new WorkingSetScanReport(processHandle, (HMODULE)region_start, region_size, SCAN_SUSPICIOUS);
+	my_report->has_pe = isScannedAsModule(memPage) && this->processReport.hasModule(memPage.region_start);
 	my_report->has_shellcode = true;
 	return my_report;
 }
 
-bool WorkingSetScanner::scanDisconnectedImg()
+bool pesieve::WorkingSetScanner::isScannedAsModule(MemPageData &memPage)
 {
-	bool show_info = (!args.quiet);
-#ifdef _DEBUG
-	show_info = true;
-#endif
-	const HMODULE module_start = (HMODULE)memPage.alloc_base;
-
-	if (this->processReport->hasModuleContaining((ULONGLONG)module_start)) {
-		if (this->processReport->hasModuleContaining(memPage.region_start)) {
-#ifdef _DEBUG
-			std::cout << "[*] This area was already scanned: " << std::hex << memPage.region_start << std::endl;
-#endif
-			// already scanned
-			return true;
-		}
-		//it may be a shellcode after the loaded PE
+	if (memPage.mapping_type != MEM_IMAGE) {
 		return false;
 	}
+	if (this->processReport.hasModule((ULONGLONG)memPage.alloc_base)) {
+		return true; // it was already scanned as a PE
+	}
+	return false;
+}
+
+bool pesieve::WorkingSetScanner::scanImg()
+{
+	const bool show_info = (!args.quiet);
 
 	if (!memPage.loadMappedName()) {
 		//cannot retrieve the mapped name
 		return false;
 	}
+
+	const HMODULE module_start = (HMODULE)memPage.alloc_base;
 	
 	if (show_info) {
 		std::cout << "[!] Scanning detached: " << std::hex << module_start << " : " << memPage.mapped_name << std::endl;
@@ -135,9 +139,7 @@ bool WorkingSetScanner::scanDisconnectedImg()
 #ifdef _DEBUG
 			std::cout << "[*] Skipping a .NET module: " << modData.szModName << std::endl;
 #endif
-			if (processReport) {
-				processReport->appendReport(new SkippedModuleReport(processHandle, modData.moduleHandle, modData.original_size, modData.szModName));
-			}
+			processReport.appendReport(new SkippedModuleReport(processHandle, modData.moduleHandle, modData.original_size, modData.szModName));
 			return true;
 		}
 		if (!args.no_hooks) {
@@ -150,14 +152,16 @@ bool WorkingSetScanner::scanDisconnectedImg()
 	return true;
 }
 
-WorkingSetScanReport* WorkingSetScanner::scanRemote()
+WorkingSetScanReport* pesieve::WorkingSetScanner::scanRemote()
 {
 	if (!memPage.isInfoFilled() && !memPage.fillInfo()) {
+#ifdef _DEBUG
+		std::cout << "[!] Could not fill: " << std::hex << memPage.start_va << " to: " << memPage.region_end << "\n";
+#endif
 		return nullptr;
 	}
-
 	// is the page executable?
-	bool is_any_exec = isExecutable(memPage);
+	const bool is_any_exec = isExecutable(memPage);
 	if (!is_any_exec) {
 		// probably not interesting
 		return nullptr;
@@ -169,34 +173,21 @@ WorkingSetScanReport* WorkingSetScanner::scanRemote()
 	}
 
 	if (memPage.mapping_type == MEM_IMAGE) {
-
-		const bool is_peb_module = memPage.loadModuleName();
-		const bool is_mapped_name = memPage.loadMappedName();
-		if (is_peb_module && is_mapped_name) {
-			//probably legit: it was scanned during the modules scan
+		memPage.loadModuleName();
+		memPage.loadMappedName();
+		if (!isScannedAsModule(memPage)) {
+			scanImg();
+		}
+		const size_t region_size = (memPage.region_end) ? (memPage.region_end - memPage.region_start) : 0;
+		if (this->processReport.hasModuleContaining(memPage.region_start, region_size)) {
+			// the area was already scanned
 			return nullptr;
 		}
-		if (!is_peb_module) {
-#ifdef _DEBUG
-			std::cout << "[!] Detected a disconnected MEM_IMG: " << memPage.region_start << std::endl;
-#endif
-			if (scanDisconnectedImg()) {
-				return nullptr; //scanned as a disconnected PE module
-			}
-			//scanning as disconnected module failed, continue scanning as an implant
-#ifdef _DEBUG
-			std::cout << "Continue to scan the disconnedted MEM_IMG as normal mem page: " << memPage.region_start << std::endl;
-#endif
-		}
 	}
-
-	WorkingSetScanReport* my_report = nullptr;
-	if (is_any_exec) {
 #ifdef _DEBUG
-		std::cout << std::hex << memPage.start_va << ": Scanning executable area" << std::endl;
+	std::cout << std::hex << memPage.start_va << ": Scanning executable area" << std::endl;
 #endif
-		my_report = this->scanExecutableArea(memPage);
-	}
+	WorkingSetScanReport* my_report = this->scanExecutableArea(memPage);
 	if (!my_report) {
 		return nullptr;
 	}

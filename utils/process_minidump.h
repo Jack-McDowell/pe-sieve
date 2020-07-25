@@ -1,5 +1,10 @@
 #pragma once
-#include <Windows.h>
+#include <windows.h>
 #include <string>
 
-bool make_minidump(DWORD pid, std::string out_file);
+namespace pesieve {
+	namespace util {
+
+		bool make_minidump(DWORD pid, std::string out_file);
+	};
+};

@@ -7,99 +7,93 @@
 
 using namespace pesieve;
 
+namespace pesieve {
+	BYTE* get_buffer_space_at(IN BYTE* buffer, IN const size_t buffer_size, IN const DWORD buffer_rva, IN const DWORD required_rva, IN const size_t required_size)
+	{
+		if (!buffer || buffer_rva > required_rva) return nullptr;
+		size_t offset = required_rva - buffer_rva;
 
-BYTE* get_buffer_space_at(IN BYTE* buffer, IN const size_t buffer_size, IN const DWORD buffer_rva, IN const DWORD required_rva, IN const size_t required_size)
-{
-	if (!buffer || buffer_rva > required_rva) return nullptr;
-	size_t offset = required_rva - buffer_rva;
-
-	BYTE* req_ptr = offset + buffer;
-	if (peconv::validate_ptr(buffer, buffer_size, req_ptr, required_size)) {
-		return req_ptr;
+		BYTE* req_ptr = offset + buffer;
+		if (peconv::validate_ptr(buffer, buffer_size, req_ptr, required_size)) {
+			return req_ptr;
+		}
+		return nullptr;
 	}
-	return nullptr;
-}
+};
+
 //---
 
-BYTE* ImportTableBuffer::getNamesSpaceAt(const DWORD rva, size_t required_size)
+BYTE* pesieve::ImportTableBuffer::getNamesSpaceAt(const DWORD rva, size_t required_size)
 {
 	return get_buffer_space_at(this->namesBuf, this->namesBufSize, this->namesRVA, rva, required_size);
 }
 
-BYTE* ImportTableBuffer::getDllSpaceAt(const DWORD rva, size_t required_size)
+BYTE* pesieve::ImportTableBuffer::getDllSpaceAt(const DWORD rva, size_t required_size)
 {
 	return get_buffer_space_at(this->dllsBuf, this->dllsBufSize, this->dllsRVA, rva, required_size);
 }
 
 //---
 
-bool ImpReconstructor::rebuildImportTable(const IN peconv::ExportsMapper* exportsMap, IN const pesieve::t_imprec_mode &imprec_mode)
+pesieve::ImpReconstructor::t_imprec_res pesieve::ImpReconstructor::rebuildImportTable(const IN peconv::ExportsMapper* exportsMap, IN const pesieve::t_imprec_mode &imprec_mode)
 {
-	if (!exportsMap) {
-		return false;
+	if (!exportsMap || imprec_mode == pesieve::PE_IMPREC_NONE) {
+		return IMP_RECOVERY_SKIPPED;
 	}
 	if (!collectIATs(exportsMap)) {
-		return false;
-	}
-	if (!peBuffer.isValidPe()) {
-		// this is possibly a shellcode, stop after collecting the IATs
-		return false;
+		return IMP_NOT_FOUND;
 	}
 
+	if (!peBuffer.isValidPe()) {
+		// this is possibly a shellcode, stop after collecting the IATs
+		return IMP_RECOVERY_NOT_APPLICABLE;
+	}
 	if (!peconv::is_pe_raw_eq_virtual(peBuffer.vBuf, peBuffer.vBufSize)
 		&& peconv::is_pe_raw(peBuffer.vBuf, peBuffer.vBufSize))
 	{
-		std::cout << "[-] ImportTable NOT recovered: the PE is in a raw format!\n";
-		return false;
+		// Do not proceed, the PE is in a raw format
+		return IMP_RECOVERY_NOT_APPLICABLE;
 	}
 
-	bool imp_recovered = false;
 	if (imprec_mode == PE_IMPREC_UNERASE || imprec_mode == PE_IMPREC_AUTO) {
-		std::cout << "[*] Trying to find ImportTable for module: " << std::hex << (ULONGLONG)peBuffer.moduleBase << "\n";
-		bool is_valid = this->isDefaultImportValid(exportsMap);
-		if (is_valid) {
-			std::cout << "[+] Valid Import Table already set.\n";
-			return is_valid;
+
+		if (this->isDefaultImportValid(exportsMap)) {
+			// Valid Import Table already set
+			return pesieve::ImpReconstructor::IMP_ALREADY_OK;
 		}
-		imp_recovered = findImportTable(exportsMap);
-		if (imp_recovered) {
-			std::cout << "[+] ImportTable found.\n";
-			return imp_recovered;
-		}
-		else {
-			std::cout << "[-] ImportTable NOT found.\n";
+		if (findImportTable(exportsMap)) {
+			// ImportTable found and set:
+			return pesieve::ImpReconstructor::IMP_DIR_FIXED;
 		}
 	}
 
+	t_imprec_res res = IMP_RECOVERY_ERROR;
+
+	// Try to rebuild ImportTable for module
 	if (imprec_mode == PE_IMPREC_REBUILD || imprec_mode == PE_IMPREC_AUTO) {
-		std::cout << "[*] Trying to rebuild ImportTable for module: " << std::hex << (ULONGLONG)peBuffer.moduleBase << "\n";
+
 		if (findIATsCoverage(exportsMap)) {
-			
 			ImportTableBuffer *impBuf = constructImportTable();
 			if (impBuf) {
-				imp_recovered = appendImportTable(*impBuf);
+				if (appendImportTable(*impBuf)) {
+					res = IMP_RECREATED;
+				}
 			}
-			delete impBuf; impBuf = nullptr;
-			if (imp_recovered) {
-				std::cout << "[+] ImportTable rebuilt.\n";
-			}
-		}
-		if (!imp_recovered) {
-			std::cout << "[-] ImportTable NOT rebuilt.\n";
+			delete impBuf;
 		}
 	}
-	return imp_recovered;
+	return res;
 }
 
-void ImpReconstructor::printFoundIATs(std::string reportPath)
+bool pesieve::ImpReconstructor::printFoundIATs(std::string reportPath)
 {
 	if (!foundIATs.size()) {
-		return;
+		return false;
 	}
 	std::ofstream report;
 	report.open(reportPath);
 	if (report.is_open() == false) {
-		return;
+		return false;
 	}
 
 	std::map<DWORD, IATBlock*>::iterator itr;
@@ -107,13 +101,14 @@ void ImpReconstructor::printFoundIATs(std::string reportPath)
 		report << itr->second->toString();
 	}
 	report.close();
+	return true;
 }
 
-bool ImpReconstructor::isDefaultImportValid(IN const peconv::ExportsMapper* exportsMap)
+bool pesieve::ImpReconstructor::isDefaultImportValid(IN const peconv::ExportsMapper* exportsMap)
 {
 	BYTE *vBuf = this->peBuffer.vBuf;
 	const size_t vBufSize = this->peBuffer.vBufSize;
-	if (!vBuf) return false;
+	if (!vBuf || !vBufSize) return false;
 
 	IMAGE_DATA_DIRECTORY *iat_dir = peconv::get_directory_entry(vBuf, IMAGE_DIRECTORY_ENTRY_IAT, true);
 	if (!iat_dir) return false;
@@ -121,13 +116,28 @@ bool ImpReconstructor::isDefaultImportValid(IN const peconv::ExportsMapper* expo
 	IMAGE_DATA_DIRECTORY *imp_dir = peconv::get_directory_entry(vBuf, IMAGE_DIRECTORY_ENTRY_IMPORT, true);
 	if (!imp_dir) return false;
 
+	if (imp_dir->VirtualAddress == 0 && imp_dir->Size == 0 
+		&& iat_dir->VirtualAddress == 0 && iat_dir->Size == 0)
+	{
+		// the PE has no Import Table, and no artefacts indicating that it was erased. Probably legit no-import PE.
+		return false;
+	}
+
+	if (iat_dir->VirtualAddress != 0 && imp_dir->VirtualAddress == 0) {
+		// the PE has IAT, but no Import Table. Import Table Address was probably erased.
+		return false;
+	}
+
+	// verify if the Import Table that is currently set is fine:
+
 	DWORD iat_offset = iat_dir->VirtualAddress;
 	IATBlock* iat_block = find_iat_block(is64bit, vBuf, vBufSize, exportsMap, iat_offset);
 	if (!iat_block) {
+		//could not find any IAT Block at this IAT offset. The IAT offset may be incorrect.
 		return false;
 	}
 	const size_t start_offset = peconv::get_hdrs_size(vBuf);
-	bool is64bit = peconv::is64bit(vBuf);
+	const bool is64bit = peconv::is64bit(vBuf);
 	size_t table_size = 0;
 	IMAGE_IMPORT_DESCRIPTOR *import_table = find_import_table(
 		is64bit,
@@ -138,6 +148,11 @@ bool ImpReconstructor::isDefaultImportValid(IN const peconv::ExportsMapper* expo
 		table_size,
 		start_offset
 	);
+	if (!import_table) {
+		// could not find Import Table for this IAT offset
+		return false;
+	}
+	// Import Table found and it fits the address that was already set
 	DWORD imp_table_offset = DWORD((ULONG_PTR)import_table - (ULONG_PTR)vBuf);
 	if (imp_dir->VirtualAddress == imp_table_offset) {
 		return true;
@@ -145,7 +160,7 @@ bool ImpReconstructor::isDefaultImportValid(IN const peconv::ExportsMapper* expo
 	return false;
 }
 
-IATBlock* ImpReconstructor::findIAT(IN const peconv::ExportsMapper* exportsMap, size_t start_offset)
+IATBlock* pesieve::ImpReconstructor::findIAT(IN const peconv::ExportsMapper* exportsMap, size_t start_offset)
 {
 	BYTE *vBuf = this->peBuffer.vBuf;
 	const size_t vBufSize = this->peBuffer.vBufSize;
@@ -165,7 +180,7 @@ IATBlock* ImpReconstructor::findIAT(IN const peconv::ExportsMapper* exportsMap, 
 	return iat_block;
 }
 
-size_t ImpReconstructor::collectIATs(IN const peconv::ExportsMapper* exportsMap)
+size_t pesieve::ImpReconstructor::collectIATs(IN const peconv::ExportsMapper* exportsMap)
 {
 	BYTE *vBuf = this->peBuffer.vBuf;
 	const size_t vBufSize = this->peBuffer.vBufSize;
@@ -196,7 +211,7 @@ size_t ImpReconstructor::collectIATs(IN const peconv::ExportsMapper* exportsMap)
 	return found;
 }
 
-bool ImpReconstructor::findImportTable(IN const peconv::ExportsMapper* exportsMap)
+bool pesieve::ImpReconstructor::findImportTable(IN const peconv::ExportsMapper* exportsMap)
 {
 	BYTE *vBuf = this->peBuffer.vBuf;
 	const size_t vBufSize = this->peBuffer.vBufSize;
@@ -220,7 +235,6 @@ bool ImpReconstructor::findImportTable(IN const peconv::ExportsMapper* exportsMa
 		IATBlock *currIAT = itr->second;
 
 		const DWORD iat_offset = currIAT->iatOffset;
-		const size_t iat_end = iat_offset + currIAT->iatSize;
 #ifdef _DEBUG
 		std::cout << "[*] Searching import table for IAT: " << std::hex << iat_offset << ", size: " << currIAT->iatSize << std::endl;
 #endif
@@ -262,7 +276,7 @@ bool ImpReconstructor::findImportTable(IN const peconv::ExportsMapper* exportsMa
 	return true;
 }
 
-bool ImpReconstructor::findIATsCoverage(IN const peconv::ExportsMapper* exportsMap)
+bool pesieve::ImpReconstructor::findIATsCoverage(IN const peconv::ExportsMapper* exportsMap)
 {
 	size_t covered = 0;
 	std::map<DWORD, IATBlock*>::iterator itr;
@@ -278,11 +292,11 @@ bool ImpReconstructor::findIATsCoverage(IN const peconv::ExportsMapper* exportsM
 	return (covered == foundIATs.size());
 }
 
-ImportTableBuffer* ImpReconstructor::constructImportTable()
+ImportTableBuffer* pesieve::ImpReconstructor::constructImportTable()
 {
 	BYTE *vBuf = this->peBuffer.vBuf;
 	const size_t vBufSize = this->peBuffer.vBufSize;
-	if (!vBuf) return false;
+	if (!vBuf) return nullptr;
 
 	size_t ready_blocks = 0;
 	std::map<DWORD, IATBlock*>::iterator itr;
@@ -366,7 +380,7 @@ ImportTableBuffer* ImpReconstructor::constructImportTable()
 	return importTableBuffer;
 }
 
-bool ImpReconstructor::appendImportTable(ImportTableBuffer &importTable)
+bool pesieve::ImpReconstructor::appendImportTable(ImportTableBuffer &importTable)
 {
 	const size_t import_table_size = importTable.getDescriptorsSize() + importTable.getNamesSize() + importTable.getDllNamesSize();
 	const size_t new_size = peBuffer.vBufSize + import_table_size;

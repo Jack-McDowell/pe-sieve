@@ -5,6 +5,10 @@
 
 #include "iat_block.h"
 
+#ifndef MASK_TO_DWORD
+#define MASK_TO_DWORD(val) (val & 0xffffffff)
+#endif
+
 namespace pesieve {
 
 	IATBlock* find_iat_block(
@@ -44,7 +48,7 @@ namespace pesieve {
 			if (!exp) break;
 
 			is_terminated = false;
-			DWORD offset = ((BYTE*)imp - vBuf);
+			DWORD offset = MASK_TO_DWORD((BYTE*)imp - vBuf);
 			iat.append(offset, *imp, exp);
 
 			if (!series) series = new IATThunksSeries(offset);

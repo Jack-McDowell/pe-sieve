@@ -21,9 +21,6 @@
 #include <locale>
 #include <codecvt>
 
-#include <psapi.h>
-#pragma comment(lib,"psapi.lib")
-
 using namespace pesieve;
 using namespace pesieve::util;
 
@@ -78,10 +75,10 @@ t_scan_status pesieve::ProcessScanner::scanForIATHooks(HANDLE processHandle, Mod
 	return scan_res;
 }
 
-t_scan_status pesieve::ProcessScanner::scanForHooks(HANDLE processHandle, ModuleData& modData, RemoteModuleData &remoteModData, ProcessScanReport& process_report)
+t_scan_status pesieve::ProcessScanner::scanForHooks(HANDLE processHandle, ModuleData& modData, RemoteModuleData &remoteModData, ProcessScanReport& process_report, bool scan_data)
 {
 	CodeScanner hooks(processHandle, modData, remoteModData);
-
+	hooks.scanData(scan_data);
 	CodeScanReport *scan_report = hooks.scanRemote();
 	if (!scan_report) return SCAN_ERROR;
 
@@ -205,24 +202,13 @@ ProcessScanReport* pesieve::ProcessScanner::scanRemote()
 
 size_t pesieve::ProcessScanner::scanWorkingSet(ProcessScanReport &pReport) //throws exceptions
 {
-	PSAPI_WORKING_SET_INFORMATION wsi_1 = { 0 };
-	BOOL result = QueryWorkingSet(this->processHandle, (LPVOID)&wsi_1, sizeof(PSAPI_WORKING_SET_INFORMATION));
-	if (result == FALSE && GetLastError() != ERROR_BAD_LENGTH) {
-		/**
-		Allow to proceed on ERROR_BAD_LENGTH.
-		ERROR_BAD_LENGTH may occur if the scanner is 32 bit and running on a 64 bit system.
-		In case of any different error, break.
-		*/
+	if (!util::count_workingset_entries(this->processHandle)) {
 		throw std::runtime_error("Could not query the working set. ");
 		return 0;
 	}
-#ifdef _DEBUG
-	std::cout << "Number of entries: " << std::dec << wsi_1.NumberOfEntries << std::endl;
-#endif
-
 	DWORD start_tick = GetTickCount();
 	std::set<ULONGLONG> region_bases;
-	size_t pages_count = enum_workingset(processHandle, region_bases);
+	size_t pages_count = util::enum_workingset(processHandle, region_bases);
 	if (!args.quiet) {
 		std::cout << "Scanning workingset: " << std::dec << pages_count << " memory regions." << std::endl;
 	}
@@ -343,7 +329,9 @@ size_t pesieve::ProcessScanner::scanModules(ProcessScanReport &pReport)  //throw
 		}
 		// if hooks not disabled and process is not hollowed, check for hooks:
 		if (!args.no_hooks && (is_hollowed == SCAN_NOT_SUSPICIOUS)) {
-			scanForHooks(processHandle, modData, remoteModData, pReport);
+			const bool scan_data = (this->args.data == pesieve::PE_DATA_SCAN_ALWAYS)
+				|| (!this->isDEP && (this->args.data == pesieve::PE_DATA_SCAN_NO_DEP));
+			scanForHooks(processHandle, modData, remoteModData, pReport, scan_data);
 		}
 	}
 	return counter;

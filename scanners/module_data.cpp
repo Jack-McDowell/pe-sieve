@@ -45,9 +45,7 @@ bool pesieve::ModuleData::_loadOriginal(bool disableFSredir)
 	PVOID old_val;
 	if (disableFSredir) {
 		isRedirDisabled = wow64_disable_fs_redirection(&old_val);
-#ifdef _DEBUG
-		std::cout << "[+] Loadeding file by disabling FS redirection:" << szModName << "\n";
-#endif
+		// try to load with FS redirection disabled
 	}
 	original_module = peconv::load_pe_module(szModName, original_size, false, false);
 	if (isRedirDisabled) {
@@ -223,13 +221,15 @@ bool pesieve::RemoteModuleData::isSectionEntry(const size_t section_number)
 	if (!sec_hdr) {
 		return false;
 	}
-	if (ep_va >= sec_hdr->VirtualAddress && ep_va < sec_hdr->Misc.VirtualSize) {
+	if (ep_va >= sec_hdr->VirtualAddress 
+		&& ep_va < (sec_hdr->VirtualAddress + sec_hdr->Misc.VirtualSize))
+	{
 		return true;
 	}
 	return false;
 }
 
-bool pesieve::RemoteModuleData::isSectionExecutable(const size_t section_number)
+bool pesieve::RemoteModuleData::isSectionExecutable(const size_t section_number, bool allow_data)
 {
 	//for special cases when the section is not set executable in headers, but in reality is executable...
 	//get the section header from the module:
@@ -254,14 +254,20 @@ bool pesieve::RemoteModuleData::isSectionExecutable(const size_t section_number)
 		//std::cout << std::hex << "p1 Sec: " << section_number << " VA: " << start_va << " t: " << page_info.Type << " p: " << page_info.Protect << std::endl;
 		return true;
 	}
+	if (allow_data) {
+		if (pesieve::util::is_readable(page_info.Type, page_info.Protect)) {
+			//std::cout << std::hex << "p1 Sec: " << section_number << " VA: " << start_va << " t: " << page_info.Type << " p: " << page_info.Protect << std::endl;
+			return true;
+		}
+	}
 	return false;
 }
 
-bool pesieve::RemoteModuleData::hasExecutableSection()
+bool pesieve::RemoteModuleData::hasExecutableSection(bool allow_data)
 {
 	size_t sec_count = peconv::get_sections_count(this->headerBuffer, peconv::MAX_HEADER_SIZE);
 	for (size_t i = 0; i < sec_count ; i++) {
-		if (isSectionExecutable(i)) {
+		if (isSectionExecutable(i, allow_data)) {
 			return true;
 		}
 	}

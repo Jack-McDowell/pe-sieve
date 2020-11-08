@@ -54,10 +54,10 @@ namespace pesieve {
 		{
 			ULONGLONG module_base = reinterpret_cast<ULONGLONG>(this->moduleHandle);
 			if (va < module_base) {
-				return NULL; // not this module
+				return 0; // not this module
 			}
 			if (va > module_base + this->original_size) {
-				return NULL; // not this module
+				return 0; // not this module
 			}
 			ULONGLONG diff = (va - module_base);
 			return static_cast<DWORD>(diff);
@@ -119,8 +119,8 @@ namespace pesieve {
 		}
 
 		bool isSectionEntry(const size_t section_number);
-		bool isSectionExecutable(const size_t section_number);
-		bool hasExecutableSection();
+		bool isSectionExecutable(const size_t section_number, bool allow_data);
+		bool hasExecutableSection(bool allow_data);
 		bool isInitialized()
 		{
 			if (!isHdrReady && !init()) {

@@ -47,16 +47,10 @@ bool pesieve::WorkingSetScanner::isPotentiallyExecutable(MemPageData &memPageDat
 	{
 		return false;
 	}
-	bool is_any_exec = false;
-
-	if (memPage.mapping_type == MEM_IMAGE) {
-		is_any_exec = (memPage.protection & SECTION_MAP_READ) != 0;
-
-		if (is_any_exec) return true;
+	if (pesieve::util::is_readable(memPage.mapping_type, memPage.protection)) {
+		return true;
 	}
-	is_any_exec = (memPage.protection & PAGE_READWRITE)
-		|| (memPage.protection & PAGE_READONLY);
-	return is_any_exec;
+	return false;
 }
 
 WorkingSetScanReport* pesieve::WorkingSetScanner::scanExecutableArea(MemPageData &memPageData)
@@ -143,7 +137,9 @@ bool pesieve::WorkingSetScanner::scanImg()
 			return true;
 		}
 		if (!args.no_hooks) {
-			const t_scan_status hooks_stat = ProcessScanner::scanForHooks(processHandle, modData, remoteModData, processReport);
+			const bool scan_data = (this->args.data == pesieve::PE_DATA_SCAN_ALWAYS)
+				|| (!memPage.is_dep_enabled && (this->args.data == pesieve::PE_DATA_SCAN_NO_DEP));
+			const t_scan_status hooks_stat = ProcessScanner::scanForHooks(processHandle, modData, remoteModData, processReport, scan_data);
 #ifdef _DEBUG
 			std::cout << "[*] Scanned for hooks. Status: " << hooks_stat << std::endl;
 #endif

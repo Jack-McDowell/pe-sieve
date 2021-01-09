@@ -7,10 +7,6 @@
 #define MAX_MODULE_BUF_LEN 1024
 #define PARAM_LIST_SEPARATOR ';'
 
-#ifdef _DEBUG
-#undef _DEBUG
-#endif
-
 #ifndef __cplusplus
 typedef char bool;
 #endif

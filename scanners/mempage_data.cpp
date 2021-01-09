@@ -1,5 +1,6 @@
 #include "mempage_data.h"
 #include "module_data.h"
+#include "../utils/debug.h"
 
 using namespace pesieve;
 
@@ -11,9 +12,7 @@ bool pesieve::MemPageData::fillInfo()
 		if (GetLastError() == ERROR_INVALID_PARAMETER) {
 			return false;
 		}
-#ifdef _DEBUG
-		std::cout << "Could not query page: " << std::hex << start_va << ". Error: " << GetLastError() << std::endl;
-#endif
+		DEBUG_PRINT("Could not query page: " << std::hex << start_va << ". Error: " << GetLastError() << std::endl);
 		return false;
 	}
 	initial_protect = page_info.AllocationProtect;
@@ -31,9 +30,7 @@ bool pesieve::MemPageData::loadModuleName()
 	const HMODULE mod_base = (HMODULE)this->alloc_base;
 	std::string module_name = RemoteModuleData::getModuleName(processHandle, mod_base);
 	if (module_name.length() == 0) {
-#ifdef _DEBUG
-		std::cerr << "Could not retrieve module name" << std::endl;
-#endif
+		DEBUG_PRINT("Could not retrieve module name" << std::endl);
 		return false;
 	}
 	this->module_name = module_name;
@@ -47,9 +44,7 @@ bool pesieve::MemPageData::loadMappedName()
 	}
 	std::string mapped_filename = RemoteModuleData::getMappedName(this->processHandle, (HMODULE)this->alloc_base);
 	if (mapped_filename.length() == 0) {
-#ifdef _DEBUG
-		std::cerr << "Could not retrieve name" << std::endl;
-#endif
+		DEBUG_PRINT("Could not retrieve name" << std::endl);
 		return false;
 	}
 	this->mapped_name = mapped_filename;
@@ -59,37 +54,27 @@ bool pesieve::MemPageData::loadMappedName()
 bool pesieve::MemPageData::isRealMapping()
 {
 	if (this->loadedData == nullptr && !fillInfo()) {
-#ifdef _DEBUG
-		std::cerr << "Not loaded!" << std::endl;
-#endif
+		DEBUG_PRINT("Not loaded!" << std::endl);
 		return false;
 	}
 	if (!loadMappedName()) {
-#ifdef _DEBUG
-		std::cerr << "Could not retrieve name" << std::endl;
-#endif
+		DEBUG_PRINT("Could not retrieve name" << std::endl);
 		return false;
 	}
 	HANDLE file = CreateFileA(this->mapped_name.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	if(file == INVALID_HANDLE_VALUE) {
-#ifdef _DEBUG
-		std::cerr << "Could not open file!" << std::endl;
-#endif
+		DEBUG_PRINT("Could not open file!" << std::endl)
 		return false;
 	}
 	HANDLE mapping = CreateFileMapping(file, 0, PAGE_READONLY, 0, 0, 0);
 	if (!mapping) {
-#ifdef _DEBUG
-		std::cerr << "Could not create mapping!" << std::endl;
-#endif
+		DEBUG_PRINT("Could not create mapping!" << std::endl)
 		CloseHandle(file);
 		return false;
 	}
 	BYTE *rawData = (BYTE*) MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
 	if (rawData == nullptr) {
-#ifdef _DEBUG
-		std::cerr << "Could not map view of file" << std::endl;
-#endif
+		DEBUG_PRINT("Could not map view of file" << std::endl);
 		CloseHandle(mapping);
 		CloseHandle(file);
 		return false;
@@ -127,16 +112,12 @@ bool pesieve::MemPageData::_loadRemote()
 
 	size_t size_read = peconv::read_remote_memory(this->processHandle, (BYTE*)this->start_va, loadedData, loadedSize);
 	if ((size_read == 0) && is_guarded) {
-#ifdef _DEBUG
-		std::cout << "Warning: guarded page, trying to read again..." << std::endl;
-#endif
+		DEBUG_PRINT("Warning: guarded page, trying to read again..." << std::endl);
 		size_read = peconv::read_remote_memory(this->processHandle, (BYTE*)this->start_va, loadedData, loadedSize);
 	}
 	if (size_read == 0) {
 		_freeRemote();
-#ifdef _DEBUG
-		std::cerr << "Cannot read remote memory!" << std::endl;
-#endif
+		DEBUG_PRINT("Cannot read remote memory!" << std::endl);
 		return false;
 	}
 	return true;

@@ -6,6 +6,7 @@
 #include "../utils/path_converter.h"
 #include "../utils/workingset_enum.h"
 #include "../utils/artefacts_util.h"
+#include "../utils/debug.h"
 
 using namespace pesieve;
 using namespace pesieve::util;
@@ -121,18 +122,14 @@ bool pesieve::WorkingSetScanner::scanImg()
 	ModuleData modData(processHandle, module_start, memPage.mapped_name);
 	
 	const t_scan_status status = ProcessScanner::scanForHollows(processHandle, modData, remoteModData, processReport);
-#ifdef _DEBUG
-	std::cout << "[*] Scanned for hollows. Status: " << status << std::endl;
-#endif
+	DEBUG_PRINT("[*] Scanned for hollows. Status: " << status << std::endl);
 	if (status == SCAN_ERROR) {
 		//failed scanning it as a loaded PE module
 		return false;
 	}
 	if (status == SCAN_NOT_SUSPICIOUS) {
 		if (modData.isDotNet()) {
-#ifdef _DEBUG
-			std::cout << "[*] Skipping a .NET module: " << modData.szModName << std::endl;
-#endif
+			DEBUG_PRINT("[*] Skipping a .NET module: " << modData.szModName << std::endl);
 			processReport.appendReport(new SkippedModuleReport(processHandle, modData.moduleHandle, modData.original_size, modData.szModName));
 			return true;
 		}
@@ -140,9 +137,7 @@ bool pesieve::WorkingSetScanner::scanImg()
 			const bool scan_data = (this->args.data == pesieve::PE_DATA_SCAN_ALWAYS)
 				|| (!memPage.is_dep_enabled && (this->args.data == pesieve::PE_DATA_SCAN_NO_DEP));
 			const t_scan_status hooks_stat = ProcessScanner::scanForHooks(processHandle, modData, remoteModData, processReport, scan_data);
-#ifdef _DEBUG
-			std::cout << "[*] Scanned for hooks. Status: " << hooks_stat << std::endl;
-#endif
+			DEBUG_PRINT("[*] Scanned for hooks. Status: " << hooks_stat << std::endl);
 		}
 	}
 	return true;
@@ -151,9 +146,7 @@ bool pesieve::WorkingSetScanner::scanImg()
 WorkingSetScanReport* pesieve::WorkingSetScanner::scanRemote()
 {
 	if (!memPage.isInfoFilled() && !memPage.fillInfo()) {
-#ifdef _DEBUG
-		std::cout << "[!] Could not fill: " << std::hex << memPage.start_va << " to: " << memPage.region_end << "\n";
-#endif
+		DEBUG_PRINT("[!] Could not fill: " << std::hex << memPage.start_va << " to: " << memPage.region_end << "\n");
 		return nullptr;
 	}
 	// is the page executable?
@@ -180,9 +173,7 @@ WorkingSetScanReport* pesieve::WorkingSetScanner::scanRemote()
 			return nullptr;
 		}
 	}
-#ifdef _DEBUG
-	std::cout << std::hex << memPage.start_va << ": Scanning executable area" << std::endl;
-#endif
+	DEBUG_PRINT(std::hex << memPage.start_va << ": Scanning executable area" << std::endl)
 	WorkingSetScanReport* my_report = this->scanExecutableArea(memPage);
 	if (!my_report) {
 		return nullptr;

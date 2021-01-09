@@ -2,6 +2,7 @@
 
 #include "iat_finder.h"
 #include "import_table_finder.h"
+#include "../utils/debug.h"
 
 #include <fstream>
 
@@ -235,9 +236,7 @@ bool pesieve::ImpReconstructor::findImportTable(IN const peconv::ExportsMapper* 
 		IATBlock *currIAT = itr->second;
 
 		const DWORD iat_offset = currIAT->iatOffset;
-#ifdef _DEBUG
-		std::cout << "[*] Searching import table for IAT: " << std::hex << iat_offset << ", size: " << currIAT->iatSize << std::endl;
-#endif
+		DEBUG_PRINT("[*] Searching import table for IAT: " << std::hex << iat_offset << ", size: " << currIAT->iatSize << std::endl);
 		bool is64bit = peconv::is64bit(vBuf);
 		import_table = find_import_table(
 			is64bit,

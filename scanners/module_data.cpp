@@ -4,6 +4,7 @@
 #include "../utils/path_converter.h"
 #include "../utils/process_util.h"
 #include "../utils/artefacts_util.h"
+#include "../utils/debug.h"
 #include "artefact_scanner.h"
 
 #include <psapi.h>
@@ -116,9 +117,7 @@ bool pesieve::ModuleData::isDotNetManagedCode()
 	if (!peconv::get_dotnet_hdr(this->original_module, this->original_size, dotNetDir)){
 		return false;
 	}
-#ifdef _DEBUG
-	std::cout << "This is a .NET module" << std::endl;
-#endif
+	DEBUG_PRINT("This is a .NET module" << std::endl);
 	return true;
 }
 
@@ -246,9 +245,7 @@ bool pesieve::RemoteModuleData::isSectionExecutable(const size_t section_number,
 #endif
 		return false;
 	}
-#ifdef _DEBUG
-	std::cout << std::hex << "Sec: " << section_number << " VA: " << start_va << " t: " << page_info.Type << " p: " << page_info.Protect << std::endl;
-#endif
+	DEBUG_PRINT(std::hex << "Sec: " << section_number << " VA: " << start_va << " t: " << page_info.Type << " p: " << page_info.Protect << std::endl);
 
 	if (pesieve::util::is_executable(page_info.Type, page_info.Protect)) {
 		//std::cout << std::hex << "p1 Sec: " << section_number << " VA: " << start_va << " t: " << page_info.Type << " p: " << page_info.Protect << std::endl;

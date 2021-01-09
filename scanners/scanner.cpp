@@ -9,6 +9,7 @@
 #include "../utils/modules_enum.h"
 #include "../utils/process_privilege.h"
 #include "../utils/process_util.h"
+#include "../utils/debug.h"
 
 #include "headers_scanner.h"
 #include "code_scanner.h"
@@ -38,9 +39,7 @@ t_scan_status pesieve::ProcessScanner::scanForHollows(HANDLE processHandle, Modu
 	}
 	
 	if (scan_report->archMismatch && isWow64) {
-#ifdef _DEBUG
-		std::cout << "Arch mismatch, reloading..." << std::endl;
-#endif
+		DEBUG_PRINT("Arch mismatch, reloading..." << std::endl)
 		if (modData.reloadWow64()) {
 			delete scan_report; // delete previous report
 			scan_report = hollows.scanRemote();
@@ -303,9 +302,7 @@ size_t pesieve::ProcessScanner::scanModules(ProcessScanReport &pReport)  //throw
 		}
 		if (modData.isDotNet()) {
 			pReport.isManaged = true;
-#ifdef _DEBUG
-			std::cout << "[*] Skipping a .NET module: " << modData.szModName << std::endl;
-#endif
+			DEBUG_PRINT("[*] Skipping a .NET module: " << modData.szModName << std::endl);
 			pReport.appendReport(new SkippedModuleReport(processHandle, modData.moduleHandle, modData.original_size, modData.szModName));
 			continue;
 		}

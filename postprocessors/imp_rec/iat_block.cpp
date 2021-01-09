@@ -1,5 +1,6 @@
 #include "iat_block.h"
 #include <peconv.h>
+#include "../utils/debug.h"
 
 namespace pesieve {
 	size_t get_longest_func_name(std::map<ULONGLONG, std::set<peconv::ExportedFunc>> &addrToFunc)
@@ -126,9 +127,7 @@ bool pesieve::IATBlock::makeCoverage(IN const peconv::ExportsMapper* exportsMap)
 		if (!splitted.size()) {
 			continue;
 		}
-#ifdef _DEBUG
-		std::cout << "Uncovered series splitted into: " << splitted.size() << " series\n";
-#endif
+		DEBUG_PRINT("Uncovered series splitted into: " << splitted.size() << " series\n");
 		this->thunkSeries.erase(series);
 		this->thunkSeries.insert(splitted.begin(), splitted.end());
 		
@@ -174,9 +173,7 @@ pesieve::IATThunksSeriesSet pesieve::IATBlock::splitSeries(IN IATThunksSeries* s
 		if (!new_series) {
 			new_series = new IATThunksSeries(offset);
 			last_dll = func->libName;
-#ifdef _DEBUG
-			std::cout << std::hex << "addr:  " << offset << " set DLL: " << last_dll << "\n";
-#endif
+			DEBUG_PRINT(std::hex << "addr:  " << offset << " set DLL: " << last_dll << "\n")
 		}
 		new_series->insert(offset, func_addr);
 	}

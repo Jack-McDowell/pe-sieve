@@ -3,6 +3,7 @@
 #include <peconv.h>
 
 #include <fstream>
+#include "../utils/debug.h"
 
 using namespace pesieve;
 
@@ -37,9 +38,7 @@ namespace pesieve {
 			bool is_by_ord = (desc->u1.Ordinal & ordinal_flag) != 0;
 			if (is_by_ord) {
 				raw_ordinal = desc->u1.Ordinal & (~ordinal_flag);
-#ifdef _DEBUG
-				std::cout << "raw ordinal: " << std::hex << raw_ordinal << std::endl;
-#endif
+				DEBUG_PRINT("raw ordinal: " << std::hex << raw_ordinal << std::endl);
 				this->storedFunc[call_via_rva] = peconv::ExportedFunc(peconv::get_dll_shortname(lib_name), raw_ordinal);
 			}
 			else {
@@ -243,13 +242,9 @@ bool pesieve::IATScanner::filterResults(peconv::ImpsNotCovered &notCovered, IATS
 		if (GetModuleFileNameExA(this->processHandle, (HMODULE)module_start, moduleName, sizeof(moduleName))) {
 			std::string dirName = peconv::get_directory_name(moduleName);
 			std::transform(dirName.begin(), dirName.end(), dirName.begin(), tolower);
-#ifdef _DEBUG
-			std::cout << dirName << "\n";
-#endif
+			DEBUG_PRINT(dirName);
 			if (dirName == system32Path_str || dirName == sysWow64Path_str) {
-#ifdef _DEBUG
-				std::cout << "Skipped: " << dirName << "\n";
-#endif
+				DEBUG_PRINT("Skipped: " << dirName << "\n");
 				continue;
 			}
 		}

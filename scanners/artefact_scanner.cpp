@@ -2,6 +2,7 @@
 
 #include "../utils/artefacts_util.h"
 #include "../utils/workingset_enum.h"
+#include "../utils/debug.h"
 
 #include <peconv.h>
 
@@ -208,9 +209,7 @@ size_t pesieve::ArtefactScanner::calcImgSize(HANDLE processHandle, HMODULE modBa
 		ULONGLONG region_base = peconv::fetch_alloc_base(processHandle, (PBYTE)last_sec_va);
 		if (region_base != main_base) {
 			//it can happen if the PE is in a RAW format instead of Virtual
-#ifdef _DEBUG
-			std::cout << "[!] Mismatch: region_base : " << std::hex << region_base << " while main base: " << main_base << "\n";
-#endif
+			DEBUG_PRINT("[!] Mismatch: region_base : " << std::hex << region_base << " while main base: " << main_base << "\n");
 			break; // out of scope
 		}
 		max_addr = next_max_addr;
@@ -219,9 +218,7 @@ size_t pesieve::ArtefactScanner::calcImgSize(HANDLE processHandle, HMODULE modBa
 	size_t total_size = max_addr + last_sec_size;
 
 	if (total_size > 0) {
-#ifdef _DEBUG
-		std::cout << "Image: " << std::hex << (ULONGLONG)modBaseAddr << " Size:" << std::hex << total_size << " max_addr: " << max_addr << std::endl;
-#endif
+		DEBUG_PRINT("Image: " << std::hex << (ULONGLONG) modBaseAddr << " Size:" << std::hex << total_size << " max_addr: " << max_addr << std::endl);
 		return total_size;
 	}
 	return first_area_size;
@@ -314,19 +311,15 @@ bool pesieve::ArtefactScanner::_validateSecRegions(MemPageData &memPage, LPVOID 
 
 		MEMORY_BASIC_INFORMATION page_info = { 0 };
 		if (!peconv::fetch_region_info(processHandle, (BYTE*)last_sec_addr, page_info)) {
-#ifdef _DEBUG
-			std::cout << std::hex << last_sec_addr << " couldn't fetch module info" << std::endl;
-#endif
+			DEBUG_PRINT(std::hex << last_sec_addr << " couldn't fetch module info" << std::endl);
 			return false;
 		}
 		if (page_info.AllocationBase != module_start_info.AllocationBase) {
-#ifdef _DEBUG
-			std::cout << "[-] SecBase mismatch: ";
+			DEBUG_PRINT("[-] SecBase mismatch: ");
 			if (curr_sec->Name) {
-				std::cout << curr_sec->Name;
+				DEBUG_PRINT(curr_sec->Name);
 			}
-			std::cout << std::hex << i << " section: " << last_sec_addr << " alloc base: " << page_info.AllocationBase << " with module base: " << module_start_info.AllocationBase << std::endl;
-#endif
+			DEBUG_PRINT(std::hex << i << " section: " << last_sec_addr << " alloc base: " << page_info.AllocationBase << " with module base: " << module_start_info.AllocationBase << std::endl);
 			return false;
 		}
 	}
@@ -354,20 +347,16 @@ bool pesieve::ArtefactScanner::_validateSecRegions(MemPageData &memPage, LPVOID 
 	if (!is_ok) {
 		//maybe it is raw?
 		is_ok = _validateSecRegions(memPage, sec_hdr, sec_count, pe_image_base, false);
-#ifdef _DEBUG
 		if (!is_ok) {
-			std::cout << "[-] Raw failed!\n";
+			DEBUG_PRINT("[-] Raw failed!\n");
 		}
 		else {
-			std::cout << "[+] Raw OK!\n";
+			DEBUG_PRINT("[+] Raw OK!\n");
 		}
-#endif
 	}
-#ifdef _DEBUG
 	else {
-		std::cout << "[+] Virtual OK!\n";
+		DEBUG_PRINT("[+] Virtual OK!\n");
 	}
-#endif
 	return is_ok;
 }
 
@@ -442,10 +431,8 @@ IMAGE_SECTION_HEADER* pesieve::ArtefactScanner::findSecByPatterns(MemPageData &m
 	}
 	size_t count = count_section_hdrs(memPage.getLoadedData(), memPage.getLoadedSize(), first_sec);
 	if (!_validateSecRegions(memPage, first_sec, count)) {
-#ifdef _DEBUG
 		const ULONGLONG diff = (ULONGLONG)first_sec - (ULONGLONG)memPage.getLoadedData();
-		std::cout << "[!] section header: " << std::hex << (ULONGLONG)memPage.region_start << " hdr at: " << diff << " : validation failed!\n";
-#endif
+		DEBUG_PRINT("[!] section header: " << std::hex << (ULONGLONG)memPage.region_start << " hdr at: " << diff << " : validation failed!\n");
 		return nullptr;
 	}
 	return (IMAGE_SECTION_HEADER*)first_sec;
@@ -748,14 +735,10 @@ PeArtefacts* pesieve::ArtefactScanner::findArtefacts(MemPageData &memPage, size_
 		if (findMzPe(aMap, min_offset)) {
 			const size_t dos_offset = calc_offset(memPage, aMap.dos_hdr);
 			min_offset = (dos_offset != INVALID_OFFSET) ? dos_offset : min_offset;
-#ifdef _DEBUG
-			std::cout << std::hex << "Page: " << aMap.memPage.start_va << " Found DOS Header at: " << dos_offset << "\n";
-#endif
+			DEBUG_PRINT(std::hex << "Page: " << aMap.memPage.start_va << " Found DOS Header at: " << dos_offset << "\n");
 		}
 		else {
-#ifdef _DEBUG
-			std::cout << std::hex << "Page: " << aMap.memPage.start_va << " Searching NT Header at: " << min_offset << "\n";
-#endif
+			DEBUG_PRINT(std::hex << "Page: " << aMap.memPage.start_va << " Searching NT Header at: " << min_offset << "\n");
 			IMAGE_FILE_HEADER *nt_hdr = findNtFileHdr(aMap.memPage, min_offset, memPage.getLoadedSize());
 			setNtFileHdr(aMap, nt_hdr);
 		}
@@ -787,9 +770,7 @@ PeArtefacts* pesieve::ArtefactScanner::findArtefacts(MemPageData &memPage, size_
 			if (sec_offset != INVALID_OFFSET && sec_offset > min_offset) {
 				const size_t sections_area_size = aMap.sec_count * sizeof(IMAGE_SECTION_HEADER);
 				min_offset = (sec_offset + sections_area_size);
-#ifdef _DEBUG
-				std::cout << "Setting minOffset to SecHdr end offset: " << std::hex << min_offset << "\n";
-#endif
+				DEBUG_PRINT("Setting minOffset to SecHdr end offset: " << std::hex << min_offset << "\n");
 			}
 
 			if (!aMap.dos_hdr) {
@@ -798,10 +779,8 @@ PeArtefacts* pesieve::ArtefactScanner::findArtefacts(MemPageData &memPage, size_
 				aMap.dos_hdr = findDosHdrByPatterns(aMap.memPage, start, sec_offset);
 				if (aMap.dos_hdr && !aMap.nt_file_hdr) {
 					IMAGE_NT_HEADERS32 *nt_ptr = (IMAGE_NT_HEADERS32*)((ULONG_PTR)aMap.dos_hdr + aMap.dos_hdr->e_lfanew);
-#ifdef _DEBUG
 					const size_t nt_offset = calc_offset(memPage, nt_ptr);
-					std::cout << "Found PE offset: " << std::hex << aMap.dos_hdr->e_lfanew << " NT offset: " << nt_offset << "\n";
-#endif
+					DEBUG_PRINT("Found PE offset: " << std::hex << aMap.dos_hdr->e_lfanew << " NT offset: " << nt_offset << "\n");
 					if (aMap.memPage.validatePtr(nt_ptr, sizeof(IMAGE_NT_HEADERS32))) {
 						setNtFileHdr(aMap, &nt_ptr->FileHeader);
 					}

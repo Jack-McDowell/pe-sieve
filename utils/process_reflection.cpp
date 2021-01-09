@@ -1,5 +1,6 @@
 #include "process_reflection.h"
 #include <iostream>
+#include "../utils/debug.h"
 
 #ifndef RTL_CLONE_PROCESS_FLAGS_CREATE_SUSPENDED
 #define RTL_CLONE_PROCESS_FLAGS_CREATE_SUSPENDED 0x00000001
@@ -223,9 +224,7 @@ namespace pesieve {
 				if (args.returned_hndl == NULL || args.returned_hndl == INVALID_HANDLE_VALUE) {
 					return NULL;
 				}
-#ifdef _DEBUG
-				std::cout << "Created reflection, PID = " << std::dec << args.returned_pid << "\n";
-#endif
+				DEBUG_PRINT("Created reflection, PID = " << std::dec << args.returned_pid << "\n");
 				return args.returned_hndl;
 			}
 			return NULL;
@@ -255,9 +254,7 @@ namespace pesieve {
 			HPSS snapShot = { 0 };
 			DWORD ret = _PssCaptureSnapshot(orig_hndl, capture_flags, 0, &snapShot);
 			if (ret != ERROR_SUCCESS) {
-#ifdef _DEBUG
-				std::cout << "PssCaptureSnapshot failed: " << std::hex << " ret: " << ret << " err: " << GetLastError() << "\n";
-#endif
+				DEBUG_PRINT("PssCaptureSnapshot failed: " << std::hex << " ret: " << ret << " err: " << GetLastError() << "\n");
 				return NULL;
 			}
 			return snapShot;
@@ -267,9 +264,9 @@ namespace pesieve {
 		{
 			if (procHndl && snapshot) {
 				BOOL is_ok = _PssFreeSnapshot(procHndl, snapshot);
-#ifdef _DEBUG
-				if (is_ok) std::cout << "Released process snapshot\n";
-#endif
+				if(is_ok){
+					DEBUG_PRINT("Released process snapshot\n");
+				}
 				return is_ok ? true : false;
 			}
 			return false;
@@ -283,10 +280,7 @@ namespace pesieve {
 				return NULL;
 			}
 			HANDLE clone = info.VaCloneHandle;
-#ifdef _DEBUG
-			DWORD clone_pid = GetProcessId(clone);
-			std::cout << "Clone PID = " << std::dec << clone_pid << "\n";
-#endif
+			DEBUG_PRINT("Clone PID = " << std::dec << GetProcessId(clone) << "\n");
 			return clone;
 		}
 
@@ -345,8 +339,6 @@ bool pesieve::util::release_process_reflection(HANDLE* procHndl)
 	CloseHandle(*procHndl);
 	*procHndl = NULL;
 
-#ifdef _DEBUG
-	std::cout << "Released process reflection\n";
-#endif
+	DEBUG_PRINT("Released process reflection\n");
 	return is_ok ? true : false;
 }

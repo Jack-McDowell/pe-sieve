@@ -4,6 +4,7 @@
 
 #include <peconv.h>
 #include "module_data.h"
+#include "../utils/debug.h"
 
 namespace pesieve {
 
@@ -116,17 +117,13 @@ namespace pesieve {
 	private:
 		bool loadOriginalImageAsSection(ModuleData& modData)
 		{
-#ifdef _DEBUG
-			std::cout << "PE with no sections! Loading original image as section\n";
-#endif
+			DEBUG_PRINT("PE with no sections! Loading original image as section\n");
 			if (!modData.isInitialized()) {
 				return false;
 			}
 			peconv::UNALIGNED_BUF buf = peconv::alloc_unaligned(modData.original_size);
 			if (!buf) {
-#ifdef _DEBUG
-				std::cout << "Could not alloc: " << std::hex << modData.original_size << "\n";
-#endif
+				DEBUG_PRINT("Could not alloc: " << std::hex << modData.original_size << "\n");
 				return false;
 			}
 			memcpy(buf, modData.original_module, modData.original_size);
@@ -134,9 +131,7 @@ namespace pesieve {
 			loadedSize = modData.original_size;
 			rawSize = modData.original_size;
 			rva = 0;
-#ifdef _DEBUG
-			std::cout << "Copied local: " << std::hex << modData.original_size << "\n";
-#endif
+			DEBUG_PRINT("Copied local: " << std::hex << modData.original_size << "\n");
 			return true;
 		}
 
@@ -161,9 +156,7 @@ namespace pesieve {
 
 		bool loadRemoteImageAsSection(RemoteModuleData& remoteModData)
 		{
-#ifdef _DEBUG
-			std::cout << "PE with no sections! Loading remote image as section\n";
-#endif
+			DEBUG_PRINT("PE with no sections! Loading remote image as section\n");
 			if (_loadRemoteImageAsSection(remoteModData, remoteModData.getModuleSize())) {
 				return true;
 			}

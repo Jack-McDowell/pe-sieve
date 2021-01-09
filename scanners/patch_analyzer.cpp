@@ -1,4 +1,5 @@
 #include "patch_analyzer.h"
+#include "../utils/debug.h"
 //---
 using namespace pesieve;
 
@@ -81,9 +82,7 @@ size_t pesieve::PatchAnalyzer::parseMovJmp(PatchList::Patch &patch, PBYTE patch_
 	}
 	patch_size += 2; //add jump reg size
 	patch.setHookTarget(addr);
-#ifdef _DEBUG
-	std::cout << "----> Target: " << std::hex << addr << std::endl;
-#endif
+	DEBUG_PRINT("----> Target: " << std::hex << addr << std::endl);
 	return patch_size;
 }
 

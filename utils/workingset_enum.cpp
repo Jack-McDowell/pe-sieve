@@ -1,5 +1,7 @@
 #include "workingset_enum.h"
 
+#include "../utils/debug.h"
+
 #include <iostream>
 
 #include <psapi.h>
@@ -26,9 +28,7 @@ namespace pesieve {
 				const DWORD error = is_read ? ERROR_SUCCESS : GetLastError();
 				if (error == ERROR_INVALID_PARAMETER) {
 					//nothing more to read
-#ifdef _DEBUG
-					std::cout << "Nothing more to read: " << std::hex << start_va << std::endl;
-#endif
+					DEBUG_PRINT("Nothing more to read: " << std::hex << start_va << std::endl);
 					break;
 				}
 				if (error == ERROR_ACCESS_DENIED) {
@@ -99,8 +99,6 @@ DWORD pesieve::util::count_workingset_entries(HANDLE processHandle)
 	if (!res) {
 		return 0;
 	}
-#ifdef _DEBUG
-	std::cout << "Number of entries: " << std::dec << number_of_entries << std::endl;
-#endif
+	DEBUG_PRINT("Number of entries: " << std::dec << number_of_entries << std::endl);
 	return number_of_entries;
 }

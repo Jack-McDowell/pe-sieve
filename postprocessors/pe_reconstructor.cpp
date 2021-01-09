@@ -1,6 +1,7 @@
 #include "pe_reconstructor.h"
 
 #include "../utils/workingset_enum.h"
+#include "../utils/debug.h"
 
 #include <fstream>
 
@@ -130,10 +131,8 @@ bool pesieve::PeReconstructor::fixSectionsVirtualSize(HANDLE processHandle)
 		size_t real_sec_size = peconv::fetch_region_size(processHandle, (PBYTE)sec_va);
 		if (sec_size > real_sec_size) {
 			curr_sec->Misc.VirtualSize = DWORD(real_sec_size);
-#ifdef _DEBUG
-			std::cout << i << "# Fixed section size: " << std::hex
-				<< sec_size << " vs real: " << real_sec_size << std::endl;
-#endif
+			DEBUG_PRINT(i << "# Fixed section size: " << std::hex
+				<< sec_size << " vs real: " << real_sec_size << std::endl);
 		}
 
 		max_sec_size = (real_sec_size > max_sec_size) ? real_sec_size : max_sec_size;
@@ -144,9 +143,7 @@ bool pesieve::PeReconstructor::fixSectionsVirtualSize(HANDLE processHandle)
 				if (curr_sec->VirtualAddress > prev_sec->VirtualAddress) {
 					DWORD diff = curr_sec->VirtualAddress - prev_sec->VirtualAddress;
 					prev_sec->Misc.VirtualSize = diff;
-#ifdef _DEBUG
-					std::cout << "Trimmed section" << std::endl;
-#endif
+					DEBUG_PRINT("Trimmed section" << std::endl);
 				}
 			}
 		}
@@ -189,11 +186,9 @@ bool pesieve::PeReconstructor::fixSectionsCharacteristics(HANDLE processHandle)
 		//leave only the flags that are valid
 		const DWORD charact = curr_sec->Characteristics;
 		curr_sec->Characteristics = charact & sec_all_flags;
-#ifdef DEBUG
 		if (charact != curr_sec->Characteristics) {
-			std::cout << "Section characteristics overwriten\n";
+			DEBUG_PRINT("Section characteristics overwriten\n");
 		}
-#endif
 	}
 	return true;
 }

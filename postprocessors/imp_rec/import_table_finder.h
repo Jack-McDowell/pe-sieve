@@ -1,5 +1,6 @@
 #pragma once
 #include <peconv.h>
+#include "../utils/debug.h"
 
 namespace pesieve {
 
@@ -18,9 +19,7 @@ namespace pesieve {
 		}
 		if (desc->Name) {
 			if (!peconv::is_valid_import_name(vBuf, vBufSize, name_ptr)) return 0; //invalid name, validation failed
-#ifdef _DEBUG
-			std::cout << "DLL: " << name_ptr << "\n";
-#endif
+			DEBUG_PRINT("DLL: " << name_ptr << "\n");
 		}
 		if (desc->FirstThunk == 0 && desc->OriginalFirstThunk == 0) {
 			//probably the last chunk

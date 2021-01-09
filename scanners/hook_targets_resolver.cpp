@@ -2,6 +2,7 @@
 
 #include "scan_report.h"
 #include "code_scanner.h"
+#include "../utils/debug.h"
 
 using namespace pesieve;
 
@@ -10,9 +11,7 @@ bool pesieve::HookTargetResolver::resolveTarget(PatchList::Patch* currPatch)
 	if (!currPatch) return false;
 	ULONGLONG searchedAddr = currPatch->getHookTargetVA();
 	if (searchedAddr == 0) return false;
-#ifdef _DEBUG
-	std::cout << "Searching hook address: " << std::hex << searchedAddr << std::endl;
-#endif
+	DEBUG_PRINT("Searching hook address: " << std::hex << searchedAddr << std::endl);
 	std::map<ULONGLONG, ScannedModuleInfo>::iterator itr1;
 	std::map<ULONGLONG, ScannedModuleInfo>::iterator lastEl = modulesMap.lower_bound(searchedAddr);
 	for (itr1 = modulesMap.begin(); itr1 != lastEl; ++itr1) {

@@ -1,5 +1,6 @@
 #include "headers_scanner.h"
 #include <peconv.h>
+#include "../utils/debug.h"
 
 using namespace pesieve;
 
@@ -61,17 +62,13 @@ HeadersScanReport* pesieve::HeadersScanner::scanRemote()
 	my_report->secHdrModified = isSecHdrModified(hdr_buffer1, hdr_buffer2, hdrs_size);
 
 	if (moduleData.isDotNet()) {
-#ifdef _DEBUG
-		std::cout << "[#] .NET module detected as SUSPICIOUS\n";
-#endif
+		DEBUG_PRINT("[#] .NET module detected as SUSPICIOUS\n");
 		if (!my_report->isHdrReplaced()
 			&& (my_report->archMismatch && my_report->epModified)
 			)
 		{
 			//.NET modules may overwrite some parts of their own headers
-#ifdef _DEBUG
-			std::cout << "[#] Filtered out modifications typical for .NET files, setting as not suspicious\n";
-#endif
+			DEBUG_PRINT("[#] Filtered out modifications typical for .NET files, setting as not suspicious\n");
 			my_report->status = SCAN_NOT_SUSPICIOUS;
 			return my_report;
 		}

@@ -4,6 +4,7 @@
 #include <psapi.h>
 #include <map>
 #include <peconv.h>
+#include "../utils/debug.h"
 
 #include "pe_buffer.h"
 #include "../scanners/artefact_scanner.h"
@@ -13,9 +14,7 @@ namespace pesieve {
 	template <typename IMAGE_OPTIONAL_HEADER_T>
 	bool overwrite_opt_hdr(BYTE* vBuf, size_t vBufSize, IMAGE_OPTIONAL_HEADER_T* opt_hdr_ptr, PeArtefacts &artefacts)
 	{
-#ifdef _DEBUG
-		std::cout << "Trying to overwrite the optional header\n";
-#endif
+		DEBUG_PRINT("Trying to overwrite the optional header\n");
 		if (!vBuf || !opt_hdr_ptr) return false;
 		if (!peconv::validate_ptr(vBuf, vBufSize, opt_hdr_ptr, sizeof(IMAGE_OPTIONAL_HEADER_T))) {
 			return false;

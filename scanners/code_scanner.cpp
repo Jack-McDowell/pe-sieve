@@ -4,6 +4,7 @@
 
 #include "patch_analyzer.h"
 #include "../utils/artefacts_util.h"
+#include "../utils/debug.h"
 //---
 #include <iostream>
 
@@ -39,9 +40,7 @@ bool pesieve::CodeScanner::clearIAT(PeSection &originalSec, PeSection &remoteSec
 
 	if (originalSec.isContained(iat_rva, iat_size))
 	{
-#ifdef _DEBUG
-		std::cout << "IAT is in Code section!" << std::endl;
-#endif
+		DEBUG_PRINT("IAT is in Code section!" << std::endl);
 		DWORD offset = iat_rva - originalSec.rva;
 		memset(originalSec.loadedSection + offset, 0, iat_size);
 		memset(remoteSec.loadedSection + offset, 0, iat_size);
@@ -100,9 +99,7 @@ bool pesieve::CodeScanner::clearExports(PeSection &originalSec, PeSection &remot
 
 	if (originalSec.isContained(iat_rva, iat_size))
 	{
-#ifdef _DEBUG
-		std::cout << "Exports are in the Code section!" << std::endl;
-#endif
+		DEBUG_PRINT("Exports are in the Code section!" << std::endl);
 		DWORD offset = iat_rva - originalSec.rva;
 		IMAGE_EXPORT_DIRECTORY *exports = (IMAGE_EXPORT_DIRECTORY*) ((ULONGLONG)originalSec.loadedSection + offset);
 		if (!peconv::validate_ptr(originalSec.loadedSection, originalSec.loadedSize, exports, sizeof(IMAGE_EXPORT_DIRECTORY))) {
@@ -183,13 +180,11 @@ CodeScanReport::t_section_status pesieve::CodeScanner::scanSection(PeSection &or
 	//TODO: handle sections that have inside Delayed Imports (they give false positives)
 
 	const size_t smaller_size = originalSec.loadedSize > remoteSec.loadedSize ? remoteSec.loadedSize : originalSec.loadedSize;
-#ifdef _DEBUG
-	std::cout << "Code RVA: " 
+	DEBUG_PRINT("Code RVA: "
 		<< std::hex << originalSec.rva
 		<< " to "
 		<< std::hex << originalSec.loadedSize
-		<< std::endl;
-#endif
+		<< std::endl);
 	//check if the code of the loaded module is same as the code of the module on the disk:
 	int res = memcmp(remoteSec.loadedSection, originalSec.loadedSection, smaller_size);
 
@@ -344,9 +339,7 @@ pesieve::CodeScanReport* pesieve::CodeScanner::scanRemote()
 	last_res = scanUsingBase(load_base, remote_code, my_report->sectionToResult, my_report->patchesList);
 	
 	if (load_base != hdr_base && my_report->patchesList.size() > 0) {
-#ifdef _DEBUG
-		std::cout << "[WARNING] Load Base: " << std::hex << load_base << " is different than the Hdr Base: " << hdr_base << "\n";
-#endif
+		DEBUG_PRINT("[WARNING] Load Base: " << std::hex << load_base << " is different than the Hdr Base: " << hdr_base << "\n");
 		PatchList list2;
 		std::map<DWORD, CodeScanReport::t_section_status> section_to_result;
 		t_scan_status scan_res2 = scanUsingBase(hdr_base, remote_code, section_to_result, list2);
@@ -356,9 +349,7 @@ pesieve::CodeScanReport* pesieve::CodeScanner::scanRemote()
 			my_report->sectionToResult = section_to_result;
 			last_res = scan_res2;
 		}
-#ifdef _DEBUG
-		std::cout << "Using patches list for the base: " << my_report->relocBase << " list size: " << my_report->patchesList.size() << "\n";
-#endif
+		DEBUG_PRINT("Using patches list for the base: " << my_report->relocBase << " list size: " << my_report->patchesList.size() << "\n");
 	}
 
 	this->freeExecutableSections(remote_code);

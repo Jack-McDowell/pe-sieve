@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include "../scanners/artefact_scanner.h"
+#include "../utils/debug.h"
 
 size_t pesieve::PeBuffer::calcRemoteImgSize(HANDLE processHandle, ULONGLONG modBaseAddr)
 {
@@ -116,9 +117,7 @@ bool pesieve::PeBuffer::dumpPeToFile(
 )
 {
 	if (!vBuf || !isValidPe()) return false;
-#ifdef _DEBUG
-	std::cout << "Dumping using relocBase: " << std::hex << relocBase << "\n";
-#endif
+	DEBUG_PRINT("Dumping using relocBase: " << std::hex << relocBase << "\n");
 	if (exportsMap != nullptr) {
 		if (!peconv::fix_imports(this->vBuf, this->vBufSize, *exportsMap, notCovered)) {
 			std::cerr << "[-] Unable to fix imports!" << std::endl;
@@ -127,10 +126,8 @@ bool pesieve::PeBuffer::dumpPeToFile(
 	if (dumpMode == peconv::PE_DUMP_AUTO) {
 		bool is_raw_alignment_valid = peconv::is_valid_sectons_alignment(vBuf, vBufSize, true);
 		bool is_virtual_alignment_valid = peconv::is_valid_sectons_alignment(vBuf, vBufSize, false);
-#ifdef _DEBUG
-		std::cout << "Is raw alignment valid: " << is_raw_alignment_valid << std::endl;
-		std::cout << "Is virtual alignment valid: " << is_virtual_alignment_valid << std::endl;
-#endif
+		DEBUG_PRINT("Is raw alignment valid: " << is_raw_alignment_valid << std::endl
+		 << "Is virtual alignment valid: " << is_virtual_alignment_valid << std::endl);
 		if (!is_raw_alignment_valid && is_virtual_alignment_valid) {
 			//in case if raw alignment is invalid and virtual valid, try to dump using Virtual Alignment first
 			dumpMode = peconv::PE_DUMP_REALIGN;
